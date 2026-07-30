@@ -230,6 +230,8 @@ def _parse_numbered(text: str, expected: int) -> list[str]:
 _MAX_ATTEMPTS = 6
 _BASE_DELAY_S = 1.0
 _MAX_DELAY_S = 60.0
+# Per-request HTTP timeout so hung gateways fail into the retry loop.
+DEFAULT_REQUEST_TIMEOUT_S = 120.0
 
 
 def _retry_delay_seconds(exc: BaseException, attempt: int) -> float:
@@ -266,14 +268,19 @@ class Translator:
         base_url: str | None,
         model: str,
         max_attempts: int = _MAX_ATTEMPTS,
+        request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
     ) -> None:
-        kwargs: dict = {"api_key": api_key}
+        kwargs: dict = {
+            "api_key": api_key,
+            "timeout": request_timeout_s,
+        }
         if base_url:
             kwargs["base_url"] = base_url
         self.client = OpenAI(**kwargs)
         self.model = model
         self.base_url = base_url
         self.max_attempts = max_attempts
+        self.request_timeout_s = request_timeout_s
 
     def translate_batch(self, texts: list[str]) -> list[str]:
         if not texts:

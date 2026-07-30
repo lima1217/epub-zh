@@ -4,9 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from openai import APIConnectionError, AuthenticationError
+from openai import APIConnectionError, APITimeoutError, AuthenticationError
 
-from epub_zh.translate import Translator, _is_retryable
+from epub_zh.translate import DEFAULT_REQUEST_TIMEOUT_S, Translator, _is_retryable
 
 
 def _completion(content: str) -> SimpleNamespace:
@@ -19,12 +19,41 @@ def test_is_retryable_parse_and_connection() -> None:
     assert _is_retryable(ValueError("Could not parse 3 numbered translations from model output"))
     assert not _is_retryable(ValueError("unrelated"))
     assert _is_retryable(APIConnectionError(request=MagicMock()))
+    assert _is_retryable(APITimeoutError(request=MagicMock()))
     auth = AuthenticationError(
         "nope",
         response=MagicMock(status_code=401, headers={}),
         body=None,
     )
     assert not _is_retryable(auth)
+
+
+def test_translator_passes_request_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    def fake_openai(**kwargs):  # noqa: ANN003
+        captured.update(kwargs)
+        return MagicMock()
+
+    monkeypatch.setattr("epub_zh.translate.OpenAI", fake_openai)
+    tr = Translator(api_key="sk-test", base_url=None, model="m")
+    assert captured["timeout"] == DEFAULT_REQUEST_TIMEOUT_S
+    assert tr.request_timeout_s == DEFAULT_REQUEST_TIMEOUT_S
+
+
+def test_translate_batch_retries_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("epub_zh.translate.time.sleep", lambda s: sleeps.append(s))
+    client = MagicMock()
+    client.chat.completions.create.side_effect = [
+        APITimeoutError(request=MagicMock()),
+        _completion("1. 你好"),
+    ]
+    tr = Translator(api_key="sk-test", base_url=None, model="m", max_attempts=6)
+    tr.client = client
+    assert tr.translate_batch(["Hello"]) == ["你好"]
+    assert client.chat.completions.create.call_count == 2
+    assert len(sleeps) == 1
 
 
 def test_translate_batch_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
