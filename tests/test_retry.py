@@ -115,3 +115,27 @@ def test_translate_batch_omits_thinking_extra_on_openai_default() -> None:
     assert tr.translate_batch(["Hello"]) == ["你好"]
     kwargs = client.chat.completions.create.call_args.kwargs
     assert "extra_body" not in kwargs
+
+
+def test_translate_batch_splits_after_persistent_parse_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("epub_zh.translate.time.sleep", lambda _s: None)
+    client = MagicMock()
+
+    def side_effect(**kwargs):  # noqa: ANN003
+        import re
+
+        user = kwargs["messages"][1]["content"]
+        m = re.search(r"Translate these (\d+) excerpts", user)
+        assert m
+        n = int(m.group(1))
+        if n > 1:
+            body = "\n".join(f"{i}. x" for i in range(1, n))
+            return _completion(body)
+        return _completion("1. 你好")
+
+    client.chat.completions.create.side_effect = side_effect
+    tr = Translator(api_key="sk-test", base_url=None, model="m", max_attempts=1)
+    tr.client = client
+    assert tr.translate_batch(["A", "B"]) == ["你好", "你好"]

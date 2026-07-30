@@ -89,6 +89,41 @@ def _is_translation(el: etree._Element) -> bool:
     return TRANSLATION_CLASS in classes.split()
 
 
+# EPUB code listings are often <div class="code"><p>…</p></div>, not <pre>/<code>.
+_CODE_CONTAINER_CLASSES = frozenset(
+    {
+        "code",
+        "listing",
+        "verbatim",
+        "highlight",
+        "sourcecode",
+        "source-code",
+        "programlisting",
+    }
+)
+
+
+def _is_code_container(el: etree._Element) -> bool:
+    """True when el is a pre/code tag or carries a code/listing class."""
+    if not isinstance(el.tag, str):
+        return False
+    name = _local_name(el.tag).lower()
+    if name in {"pre", "code"}:
+        return True
+    classes = {(c or "").lower() for c in (el.get("class") or "").split()}
+    return bool(classes & _CODE_CONTAINER_CLASSES)
+
+
+def _under_code_container(el: etree._Element) -> bool:
+    """True when el is, or sits inside, a code/listing container."""
+    if _is_code_container(el):
+        return True
+    for anc in el.iterancestors():
+        if _is_code_container(anc):
+            return True
+    return False
+
+
 def collect_blocks(root: etree._Element) -> list[BlockUnit]:
     units: list[BlockUnit] = []
     for el in root.iter():
@@ -100,6 +135,8 @@ def collect_blocks(root: etree._Element) -> list[BlockUnit]:
         if name not in BLOCK_TAGS:
             continue
         if _is_translation(el):
+            continue
+        if _under_code_container(el):
             continue
         # Prefer leaf-ish blocks: skip divs that only wrap other blocks
         if name == "div" and _has_block_child(el):
@@ -285,6 +322,23 @@ class Translator:
     def translate_batch(self, texts: list[str]) -> list[str]:
         if not texts:
             return []
+        try:
+            return self._translate_batch_with_retries(texts)
+        except ValueError as exc:
+            # Models sometimes merge/drop numbered items (esp. code/javadoc
+            # fragments). Bisect until each call is small enough to parse.
+            if "Could not parse" in str(exc) and len(texts) > 1:
+                mid = len(texts) // 2
+                print(
+                    f"epub-zh: splitting batch of {len(texts)} after parse failure",
+                    file=sys.stderr,
+                )
+                return self.translate_batch(texts[:mid]) + self.translate_batch(
+                    texts[mid:]
+                )
+            raise
+
+    def _translate_batch_with_retries(self, texts: list[str]) -> list[str]:
         payload = "\n".join(f"{i}. {t}" for i, t in enumerate(texts, start=1))
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
