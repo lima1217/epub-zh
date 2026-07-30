@@ -1,0 +1,23 @@
+[project]
+name = "epub-zh"
+version = "0.1.0"
+description = "CLI to translate English EPUB books to Chinese via LLM APIs"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "lxml>=5.0",
+    "openai>=1.40",
+    "typer>=0.12",
+    "rich>=13.0",
+]
+
+[project.scripts]
+epub-zh = "epub_zh.cli:app"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

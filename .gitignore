@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.epub-zh-state/
+.epub-zh.toml
+.env
+.env.*
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.DS_Store
+*.partial.epub
+*.pem
+*.key
+id_rsa*
