@@ -4,7 +4,7 @@ import io
 import zipfile
 from pathlib import Path
 
-from epub_zh.pipeline import run_translate
+from epub_zh.pipeline import run_dry_run
 
 
 def _minimal_epub(path: Path) -> None:
@@ -37,17 +37,7 @@ def test_dry_run_leaves_no_state(tmp_path: Path) -> None:
     src = tmp_path / "book.epub"
     out = tmp_path / "out.epub"
     _minimal_epub(src)
-    result = run_translate(
-        source=src,
-        output=out,
-        mode="zh",
-        api_key="",
-        base_url=None,
-        model="m",
-        batch_size=8,
-        dry_run=True,
-    )
-    assert result is None
+    run_dry_run(source=src, mode="zh")
     assert not out.exists()
     assert not (tmp_path / ".epub-zh-state").exists()
     # No leftover epub-zh-dry-* under system temp is hard to assert globally;

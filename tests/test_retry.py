@@ -6,7 +6,12 @@ from unittest.mock import MagicMock
 import pytest
 from openai import APIConnectionError, APITimeoutError, AuthenticationError
 
-from epub_zh.translate import DEFAULT_REQUEST_TIMEOUT_S, Translator, _is_retryable
+from epub_zh.translate import (
+    DEFAULT_REQUEST_TIMEOUT_S,
+    ParseError,
+    Translator,
+    _is_retryable,
+)
 
 
 def _completion(content: str) -> SimpleNamespace:
@@ -16,7 +21,7 @@ def _completion(content: str) -> SimpleNamespace:
 
 
 def test_is_retryable_parse_and_connection() -> None:
-    assert _is_retryable(ValueError("Could not parse 3 numbered translations from model output"))
+    assert _is_retryable(ParseError("Could not parse 3 numbered translations from model output"))
     assert not _is_retryable(ValueError("unrelated"))
     assert _is_retryable(APIConnectionError(request=MagicMock()))
     assert _is_retryable(APITimeoutError(request=MagicMock()))

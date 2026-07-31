@@ -17,6 +17,10 @@ from openai import (
 
 TRANSLATION_CLASS = "epub-zh-translation"
 
+
+class ParseError(ValueError):
+    """Model returned unparseable numbered translations."""
+
 # Literary batch translation never benefits from chain-of-thought. Reasoning
 # models (e.g. GLM-4.7 on Z.AI) enable thinking by default and inflate latency.
 # Send both vendor spellings; gateways ignore unknown keys.
@@ -252,13 +256,13 @@ def _parse_numbered(text: str, expected: int) -> list[str]:
         return [numbered[i] for i in wanted]
     # Partial / gapped numbering is ambiguous — fail instead of realigning
     if numbered:
-        raise ValueError(
+        raise ParseError(
             f"Could not parse {expected} numbered translations from model output"
         )
     # Fallback: take non-empty lines in order when no numbering detected
     if len(lines) == expected:
         return lines
-    raise ValueError(
+    raise ParseError(
         f"Could not parse {expected} numbered translations from model output"
     )
 
@@ -292,7 +296,7 @@ def _is_retryable(exc: BaseException) -> bool:
         # 429 already covered by RateLimitError; keep 5xx and 408.
         return exc.status_code in {408, 429} or exc.status_code >= 500
     # Model returned unparseable numbering — often transient.
-    if isinstance(exc, ValueError) and "Could not parse" in str(exc):
+    if isinstance(exc, ParseError):
         return True
     return False
 
@@ -324,19 +328,19 @@ class Translator:
             return []
         try:
             return self._translate_batch_with_retries(texts)
-        except ValueError as exc:
+        except ParseError:
             # Models sometimes merge/drop numbered items (esp. code/javadoc
             # fragments). Bisect until each call is small enough to parse.
-            if "Could not parse" in str(exc) and len(texts) > 1:
-                mid = len(texts) // 2
-                print(
-                    f"epub-zh: splitting batch of {len(texts)} after parse failure",
-                    file=sys.stderr,
-                )
-                return self.translate_batch(texts[:mid]) + self.translate_batch(
-                    texts[mid:]
-                )
-            raise
+            if len(texts) <= 1:
+                raise
+            mid = len(texts) // 2
+            print(
+                f"epub-zh: splitting batch of {len(texts)} after parse failure",
+                file=sys.stderr,
+            )
+            return self.translate_batch(texts[:mid]) + self.translate_batch(
+                texts[mid:]
+            )
 
     def _translate_batch_with_retries(self, texts: list[str]) -> list[str]:
         payload = "\n".join(f"{i}. {t}" for i, t in enumerate(texts, start=1))
