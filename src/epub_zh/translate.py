@@ -50,6 +50,31 @@ BLOCK_TAGS = frozenset(
     }
 )
 
+# Structural wrappers that are not themselves translation units, but mark nested
+# content so ancestors must not concatenate descendant block text.
+CONTAINER_TAGS = frozenset(
+    {
+        "section",
+        "article",
+        "nav",
+        "aside",
+        "header",
+        "footer",
+        "main",
+        "table",
+        "thead",
+        "tbody",
+        "tfoot",
+        "tr",
+        "ul",
+        "ol",
+        "dl",
+        "figure",
+    }
+)
+
+NESTED_CONTENT_TAGS = BLOCK_TAGS | CONTAINER_TAGS
+
 SKIP_TAGS = frozenset({"script", "style", "noscript", "svg", "math", "code", "pre"})
 
 _WS_RE = re.compile(r"\s+")
@@ -81,11 +106,30 @@ def _element_text(el: etree._Element) -> str:
     return _WS_RE.sub(" ", "".join(parts)).strip()
 
 
-def _has_block_child(el: etree._Element) -> bool:
+def _has_nested_content_child(el: etree._Element) -> bool:
     for child in el:
-        if _local_name(child.tag).lower() in BLOCK_TAGS:
+        if _local_name(child.tag).lower() in NESTED_CONTENT_TAGS:
             return True
     return False
+
+
+def _own_element_text(el: etree._Element) -> str:
+    """Text on this element excluding nested block/container subtrees."""
+    parts: list[str] = []
+    if el.text:
+        parts.append(el.text)
+    for child in el:
+        name = _local_name(child.tag).lower()
+        if name in SKIP_TAGS:
+            continue
+        if name in NESTED_CONTENT_TAGS:
+            if child.tail:
+                parts.append(child.tail)
+            continue
+        parts.append(_element_text(child))
+        if child.tail:
+            parts.append(child.tail)
+    return _WS_RE.sub(" ", "".join(parts)).strip()
 
 
 def _is_translation(el: etree._Element) -> bool:
@@ -142,10 +186,13 @@ def collect_blocks(root: etree._Element) -> list[BlockUnit]:
             continue
         if _under_code_container(el):
             continue
-        # Prefer leaf-ish blocks: skip divs that only wrap other blocks
-        if name == "div" and _has_block_child(el):
-            continue
-        text = _element_text(el)
+        # Leaf-ish units only: if this block wraps nested content, translate just
+        # its own label text (e.g. TOC chapter title before a nested <ol>), not
+        # the concatenated descendant prose (which is collected separately).
+        if _has_nested_content_child(el):
+            text = _own_element_text(el)
+        else:
+            text = _element_text(el)
         if len(text) < 2:
             continue
         # Skip if looks like pure punctuation/numbers only and very short
@@ -155,12 +202,49 @@ def collect_blocks(root: etree._Element) -> list[BlockUnit]:
     return units
 
 
+def _set_own_element_text(el: etree._Element, text: str) -> None:
+    """Replace own/inline label text; keep nested block/container subtrees.
+
+    Used when a collected unit is a parent that also wraps nested content (TOC
+    chapter label beside a nested <ol>, lead-in text before a <section>, etc.).
+    Wiping the whole element would delete those nested units and their markup
+    (links, lists, sections).
+    """
+    inline_children: list[etree._Element] = []
+    for child in list(el):
+        name = _local_name(child.tag).lower()
+        if name in NESTED_CONTENT_TAGS:
+            # Tails after nested containers were part of own-text extraction;
+            # drop stale source language once the label is replaced.
+            child.tail = None
+            continue
+        if name in SKIP_TAGS:
+            el.remove(child)
+            continue
+        inline_children.append(child)
+
+    if inline_children:
+        # Prefer the first inline wrapper (e.g. <a href=...>) so attributes stay.
+        first = inline_children[0]
+        for extra in inline_children[1:]:
+            el.remove(extra)
+        for nested in list(first):
+            first.remove(nested)
+        first.text = text
+        first.tail = None
+        el.text = None
+    else:
+        el.text = text
+
+
 def _set_element_text(el: etree._Element, text: str) -> None:
-    """Replace element content with a single text node, keeping the tag/attrs."""
+    """Replace translated content, preserving nested block/container subtrees."""
+    if _has_nested_content_child(el):
+        _set_own_element_text(el, text)
+        return
     for child in list(el):
         el.remove(child)
     el.text = text
-    el.tail = el.tail  # keep
 
 
 def _insert_translation_after(el: etree._Element, text: str) -> None:
