@@ -15,6 +15,8 @@ End-to-end translate / dry-run / resume workflow:
 - [`.agents/skills/epub-zh-translate/SKILL.md`](.agents/skills/epub-zh-translate/SKILL.md)
 - Flags, state layout, LLM config details: [`cli-reference.md`](.agents/skills/epub-zh-translate/cli-reference.md)
 
+**Long jobs:** `epub-zh translate` (paid run) and `epub-zh resume` must run in a **host OS terminal** (Terminal.app / iTerm), not Cursor’s integrated or agent terminal — those sessions are easy to abort. Short checks (`version`, `config`, `--dry-run`) may stay in the agent shell. See the skill § Where to run and cli-reference § Host terminal.
+
 ## Install so `epub-zh` is on PATH
 
 `command not found: epub-zh` means the package is not on the current shell `PATH`. Fix before any config or translate step.

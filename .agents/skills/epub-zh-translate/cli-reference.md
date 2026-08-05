@@ -1,6 +1,40 @@
 # epub-zh CLI reference
 
-Disclosed reference for the [epub-zh-translate](SKILL.md) skill. Load when choosing flags, configuring the LLM API, reading state, or recovering a failed job.
+Disclosed reference for the [epub-zh-translate](SKILL.md) skill. Load when choosing flags, configuring the LLM API, reading state, recovering a failed job, or launching a long translate outside Cursor.
+
+## Host terminal
+
+*pipeline* (`epub-zh translate` without `--dry-run`) and `epub-zh resume` must run in a **host OS terminal** (macOS Terminal.app, iTerm, etc.). Do **not** run them in Cursor’s integrated terminal or the agent Shell tool — IDE/agent PTYs are frequently aborted mid-job.
+
+Short commands (`version`, `config *`, `translate --dry-run`) may still run in the agent shell.
+
+### Launch (macOS Terminal.app)
+
+Prefer opening a real Terminal window with the full command (quote paths that contain spaces). Example with `osascript`:
+
+```bash
+osascript -e 'tell application "Terminal" to do script "epub-zh translate \"/path/to/book.epub\" -o \"/path/to/book_bilingual.epub\" --mode bilingual"'
+```
+
+Resume:
+
+```bash
+osascript -e 'tell application "Terminal" to do script "epub-zh resume \"/path/to/.epub-zh-state/book_bilingual/state.json\""'
+```
+
+If `epub-zh` is only on PATH inside a venv, put `source /path/to/repo/.venv/bin/activate &&` before the CLI in that same `do script` string (or rely on `uv tool install` + `~/.local/bin` on the login PATH).
+
+Fallback: paste the exact command into chat for the user to run in their own system terminal. Do not fall back to agent-background Shell.
+
+### Monitor from the agent
+
+Do not own the long process. Inspect:
+
+1. Host terminal output the user can see (`Wrote …` / `Failed on …`).
+2. `state.json`: `completed_docs`, `failed_doc`, `error`, `workdir`.
+3. Whether the `-o` EPUB exists and is non-empty.
+
+If a prior job was killed inside Cursor but `workdir` remains, *resume* from the host terminal — do not restart *pipeline* unless the user wants a clean wipe.
 
 ## Install / PATH
 
@@ -117,5 +151,6 @@ API layer retries rate limits, timeouts, 5xx, and unparseable numbered model out
 - Prefer *dry-run* before first paid *pipeline* on an unfamiliar book.
 - Prefer *resume* over re-running *translate* when state + workdir exist.
 - Prefer config file for API credentials over chat paste or shell-only `export`.
+- Run *pipeline* / *resume* only in a host OS terminal; never in Cursor/agent terminals.
 - Expect `zh` mode to flatten inline markup inside a replaced block to plain text.
 - Require text-based, DRM-free EPUB input (not scan-image books).
