@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -118,10 +119,16 @@ def _run_job(*, state: JobState, state_path: Path, api_key: str) -> Path:
         f"[bold]Docs[/]: {len(docs)} total, {len(pending)} pending"
     )
 
+    # Stable per-output session id so OpenCode Go can route and prompt-cache a
+    # long job across resume; override with OPENCODE_SESSION when needed.
+    session_id = os.environ.get("OPENCODE_SESSION") or hashlib.sha1(
+        str(output).encode()
+    ).hexdigest()
     translator = Translator(
         api_key=api_key,
         base_url=state.base_url or None,
         model=state.model,
+        session_id=session_id,
     )
 
     with Progress(

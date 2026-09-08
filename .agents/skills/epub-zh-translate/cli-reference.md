@@ -56,14 +56,14 @@ Gate: `epub-zh version`. On `command not found`, install per [`AGENTS.md`](../..
 
 ```toml
 api_key = "sk-..."
-base_url = "https://api.openai.com/v1"   # optional
-model = "gpt-4o-mini"                    # optional
+base_url = "https://api.deepseek.com/v1"   # optional; built-in default is DeepSeek official
+model = "deepseek-v4-flash"                # optional
 batch_size = 8                           # optional, 1..40
 ```
 
-OpenAI-compatible providers: that vendor’s `base_url`, `api_key`, and `model`.
+OpenAI-compatible providers: that vendor’s `base_url`, `api_key`, and `model`. Built-in defaults point at **DeepSeek official** (`base_url=https://api.deepseek.com/v1`, `model=deepseek-v4-flash`).
 
-**Precedence (high → low):** CLI flags → `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` → `.epub-zh.toml` → user `config.toml` → defaults (`gpt-4o-mini`, batch 8).
+**Precedence (high → low):** CLI flags → `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` → `.epub-zh.toml` → user `config.toml` → defaults (`deepseek-v4-flash`, DeepSeek official base, batch 8).
 
 | Subcommand | Role |
 |------------|------|
@@ -82,8 +82,8 @@ OpenAI-compatible providers: that vendor’s `base_url`, `api_key`, and `model`.
 | `SOURCE` | Input EPUB (required; DRM-free, text-based) |
 | `-o` / `--output` | Output EPUB — required unless `--dry-run` |
 | `-m` / `--mode` | `zh` (default) or `bilingual` (EN block, then ZH sibling) |
-| `--model` | Override model (else env / config / `gpt-4o-mini`) |
-| `--base-url` | Override API base (else env / config / OpenAI default) |
+| `--model` | Override model (else env / config / `deepseek-v4-flash`) |
+| `--base-url` | Override API base (else env / config / DeepSeek official `https://api.deepseek.com/v1`) |
 | `--api-key` | Override key (else env / config) |
 | `--batch-size` | Blocks per API call (1–40; else config / 8) |
 | `--dry-run` | Parse + count blocks only; no API, no state, no output |

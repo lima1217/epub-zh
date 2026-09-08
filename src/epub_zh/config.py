@@ -6,7 +6,9 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Literal
 
-DEFAULT_MODEL = "gpt-4o-mini"
+# DeepSeek official is the built-in default gateway (OpenAI-compatible).
+DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
+DEFAULT_MODEL = "deepseek-v4-flash"
 DEFAULT_BATCH_SIZE = 8
 
 CONFIG_FILENAME = "config.toml"
@@ -25,7 +27,7 @@ class FieldSpec:
 # Single source of truth for config fields (parse / merge / resolve / show).
 SETTING_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("api_key", env_key="OPENAI_API_KEY"),
-    FieldSpec("base_url", env_key="OPENAI_BASE_URL"),
+    FieldSpec("base_url", env_key="OPENAI_BASE_URL", default=DEFAULT_BASE_URL),
     FieldSpec("model", env_key="OPENAI_MODEL", default=DEFAULT_MODEL),
     FieldSpec(
         "batch_size",
@@ -200,10 +202,15 @@ def resolve_settings(
 CONFIG_TEMPLATE = """\
 # epub-zh LLM settings
 # Precedence: CLI > environment > .epub-zh.toml > this file > defaults
+#
+# Built-in default gateway: DeepSeek official (OpenAI-compatible).
+#   base_url = https://api.deepseek.com/v1
+#   model = deepseek-v4-flash
+# Any OpenAI-compatible gateway works: point base_url/model at your vendor.
 
 api_key = "sk-..."
-# base_url = "https://api.openai.com/v1"
-# model = "gpt-4o-mini"
+# base_url = "https://api.deepseek.com/v1"
+# model = "deepseek-v4-flash"
 # batch_size = 8
 """
 
@@ -234,7 +241,7 @@ def format_settings_rows(settings: ResolvedSettings) -> list[tuple[str, str, str
             else:
                 display = "(set)"
         elif spec.name == "base_url":
-            display = settings.base_url or "(OpenAI default)"
+            display = settings.base_url or f"{DEFAULT_BASE_URL} (default)"
         else:
             display = str(getattr(settings, spec.name))
         rows.append((spec.name, display, src))

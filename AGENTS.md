@@ -61,9 +61,9 @@ Edit the file (agent: open the path from `config path`; user fills secrets — d
 
 ```toml
 api_key = "sk-..."
-base_url = "https://api.openai.com/v1"   # optional; omit for OpenAI default
-model = "gpt-4o-mini"                    # optional
-batch_size = 8                           # optional, 1..40
+base_url = "https://api.deepseek.com/v1"   # optional; built-in default is DeepSeek official
+model = "deepseek-v4-flash"                # optional
+batch_size = 8                             # optional, 1..40
 ```
 
 Any OpenAI-compatible gateway works (`base_url` + that vendor’s `api_key` / `model`).
@@ -90,7 +90,9 @@ epub-zh config init --local   # → ./.epub-zh.toml
 2. Environment (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`)
 3. `./.epub-zh.toml`
 4. `~/.config/epub-zh/config.toml` (or `$XDG_CONFIG_HOME/epub-zh/config.toml`)
-5. Defaults (`model=gpt-4o-mini`, `batch_size=8`)
+5. Defaults (`base_url=https://api.deepseek.com/v1`, `model=deepseek-v4-flash`, `batch_size=8`)
+
+Built-in defaults point at **DeepSeek official** (OpenAI-compatible). Set `base_url`/`model` to switch to any other OpenAI-compatible gateway.
 
 ### Resume and keys
 

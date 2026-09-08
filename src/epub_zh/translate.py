@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import random
 import re
 import sys
@@ -14,6 +15,8 @@ from openai import (
     OpenAI,
     RateLimitError,
 )
+
+from epub_zh import __version__
 
 TRANSLATION_CLASS = "epub-zh-translation"
 
@@ -381,6 +384,50 @@ def _is_retryable(exc: BaseException) -> bool:
     return False
 
 
+def _sanitize_no_proxy(value: str) -> str:
+    """Drop malformed NO_PROXY entries that httpx cannot parse.
+
+    httpx's get_environment_proxies() treats a bracketed IPv6 entry such as
+    "[::1]" as a domain and builds a broken mount pattern ("all://*[::1]"),
+    which raises ``InvalidURL`` on any client construction. The bracketed form
+    is redundant with the unbracketed "::1" (already in the list), so entries
+    containing square brackets are safe to drop.
+    """
+    return ",".join(
+        host
+        for host in (part.strip() for part in value.split(","))
+        if host and "[" not in host and "]" not in host
+    )
+
+
+def _sanitize_proxy_env() -> None:
+    """Neutralize a malformed NO_PROXY in the environment before any client is
+    built, so a bad injected value (e.g. from the host app) can't crash runs.
+    """
+    for key in ("NO_PROXY", "no_proxy"):
+        raw = os.environ.get(key)
+        if raw and ("[" in raw or "]" in raw):
+            cleaned = _sanitize_no_proxy(raw)
+            if cleaned:
+                os.environ[key] = cleaned
+            else:
+                os.environ.pop(key, None)
+
+
+def _build_default_headers(base_url: str | None, session_id: str | None) -> dict[str, str]:
+    """Self-identifying headers for OpenAI-compatible gateways.
+
+    Hosted gateways gate SDK traffic on a recognizable user agent and often on
+    a stable per-conversation session id (OpenCode Go rejects requests missing
+    ``x-opencode-session`` with HTTP 400). Send that header only to OpenCode
+    endpoints; other gateways ignore it.
+    """
+    headers = {"User-Agent": f"epub-zh/{__version__}"}
+    if base_url and "opencode" in base_url.lower() and session_id:
+        headers["x-opencode-session"] = session_id
+    return headers
+
+
 class Translator:
     def __init__(
         self,
@@ -388,12 +435,15 @@ class Translator:
         api_key: str,
         base_url: str | None,
         model: str,
+        session_id: str | None = None,
         max_attempts: int = _MAX_ATTEMPTS,
         request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
     ) -> None:
+        _sanitize_proxy_env()
         kwargs: dict = {
             "api_key": api_key,
             "timeout": request_timeout_s,
+            "default_headers": _build_default_headers(base_url, session_id),
         }
         if base_url:
             kwargs["base_url"] = base_url
