@@ -10,7 +10,7 @@ Drive the `epub-zh` CLI end-to-end. Orchestrate the CLI; translation happens ins
 
 **Leading words:** *pipeline* (paid translate job), *dry-run* (parse-only gate), *resume* (continue from `state.json`), *config* (persistent LLM settings), *host terminal* (OS Terminal / iTerm).
 
-Install / PATH / LLM config: [`AGENTS.md`](../../../AGENTS.md). Flags, state, failure recovery, host-terminal launch: [`cli-reference.md`](cli-reference.md) — open on `command not found`, flag choice, API wiring, exit diagnosis, or *resume*.
+Install / PATH / LLM config: [`AGENTS.md`](../../../AGENTS.md). Flags, state, failure recovery, host-terminal launch: [`cli-reference.md`](cli-reference.md) — open on `command not found`, flag choice, API wiring, *host terminal* launch, exit diagnosis, or *resume*.
 
 ## Where to run
 
@@ -19,7 +19,7 @@ Install / PATH / LLM config: [`AGENTS.md`](../../../AGENTS.md). Flags, state, fa
 | Short / read-only (`version`, `config *`, `translate --dry-run`) | Agent shell OK |
 | *pipeline* and *resume* | *host terminal* only |
 
-Prepare the exact command, launch it in Terminal.app or iTerm, leave that window open, and monitor via `state.json` / the output EPUB — the agent does not own the process. Launch recipes: [`cli-reference.md`](cli-reference.md) § Host terminal.
+Run the preflight, launch the exact command in Terminal.app or iTerm, leave that window open, and monitor with `epub-zh status` — the agent does not own the process. Binary, preflight, launch recipes: [`cli-reference.md`](cli-reference.md) § Host terminal.
 
 Cursor/agent PTYs end with the chat turn; `state.json` keeps progress, the process does not.
 
@@ -48,11 +48,12 @@ Pick one before acting:
 epub-zh config init          # once; skip if config show already has api_key
 epub-zh config path          # user edits secrets at this path
 epub-zh config show          # redacted key + source column
+epub-zh config check         # key authenticates + model is served
 ```
 
 User edits `api_key` / optional `base_url` / `model` in that TOML. OpenAI-compatible gateways: vendor `base_url` + key + model. Fields and precedence: [`cli-reference.md`](cli-reference.md) § LLM API configuration.
 
-**Done when:** `epub-zh version` works; for paid runs, `config show` reports `api_key` set (or env/CLI equivalent). Keep full secrets out of the transcript.
+**Done when:** `epub-zh version` works; for paid runs, `config check` prints `OK`. Keep full secrets out of the transcript.
 
 ### 2. Gate with *dry-run*
 
@@ -85,7 +86,7 @@ epub-zh resume <path-to>/state.json
 
 Mode/model/base URL/batch size reload from state; API key from config / env / `--api-key` only.
 
-While it runs: poll `state.json` (`completed_docs`, `failed_doc`, `error`) and whether `-o` exists. User keeps the *host terminal* open until `Wrote <output>` appears there.
+While it runs: poll `epub-zh status <state.json>` until it prints `complete` or `failed`. User keeps the *host terminal* open until `Wrote <output>` appears there.
 
 **Done when:**
 - Success: host terminal shows `Wrote <output.epub>` and that file exists and is non-empty.

@@ -62,11 +62,11 @@ Edit the file (agent: open the path from `config path`; user fills secrets — d
 ```toml
 api_key = "sk-..."
 base_url = "https://api.deepseek.com/v1"   # optional; built-in default is DeepSeek official
-model = "deepseek-v4-flash"                # optional
+model = "deepseek-flash"                   # optional
 batch_size = 8                             # optional, 1..40
 ```
 
-Any OpenAI-compatible gateway works (`base_url` + that vendor’s `api_key` / `model`).
+Any OpenAI-compatible gateway works (`base_url` + that vendor’s `api_key` / `model`). Change non-secret fields with `epub-zh config set <name> <value>`.
 
 Verify without printing the raw key:
 
@@ -90,7 +90,7 @@ epub-zh config init --local   # → ./.epub-zh.toml
 2. Environment (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`)
 3. `./.epub-zh.toml`
 4. `~/.config/epub-zh/config.toml` (or `$XDG_CONFIG_HOME/epub-zh/config.toml`)
-5. Defaults (`base_url=https://api.deepseek.com/v1`, `model=deepseek-v4-flash`, `batch_size=8`)
+5. Defaults (`base_url=https://api.deepseek.com/v1`, `model=deepseek-flash`, `batch_size=8`)
 
 Built-in defaults point at **DeepSeek official** (OpenAI-compatible). Set `base_url`/`model` to switch to any other OpenAI-compatible gateway.
 
@@ -108,7 +108,7 @@ Built-in defaults point at **DeepSeek official** (OpenAI-compatible). Set `base_
 
 ```bash
 epub-zh version
-epub-zh config show
+epub-zh config check          # key works + model is served
 epub-zh translate <book.epub> --dry-run
 python -m pytest -q          # from repo with dev deps
 ```

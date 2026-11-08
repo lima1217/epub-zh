@@ -428,6 +428,30 @@ def _build_default_headers(base_url: str | None, session_id: str | None) -> dict
     return headers
 
 
+def build_client(
+    *,
+    api_key: str,
+    base_url: str | None,
+    session_id: str | None = None,
+    timeout: float = DEFAULT_REQUEST_TIMEOUT_S,
+) -> OpenAI:
+    _sanitize_proxy_env()
+    kwargs: dict = {
+        "api_key": api_key,
+        "timeout": timeout,
+        "default_headers": _build_default_headers(base_url, session_id),
+    }
+    if base_url:
+        kwargs["base_url"] = base_url
+    return OpenAI(**kwargs)
+
+
+def list_models(*, api_key: str, base_url: str | None, timeout: float = 20.0) -> list[str]:
+    """Model ids the gateway serves (GET /models)."""
+    client = build_client(api_key=api_key, base_url=base_url, timeout=timeout)
+    return sorted(m.id for m in client.models.list())
+
+
 class Translator:
     def __init__(
         self,
@@ -439,15 +463,12 @@ class Translator:
         max_attempts: int = _MAX_ATTEMPTS,
         request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
     ) -> None:
-        _sanitize_proxy_env()
-        kwargs: dict = {
-            "api_key": api_key,
-            "timeout": request_timeout_s,
-            "default_headers": _build_default_headers(base_url, session_id),
-        }
-        if base_url:
-            kwargs["base_url"] = base_url
-        self.client = OpenAI(**kwargs)
+        self.client = build_client(
+            api_key=api_key,
+            base_url=base_url,
+            session_id=session_id,
+            timeout=request_timeout_s,
+        )
         self.model = model
         self.base_url = base_url
         self.max_attempts = max_attempts

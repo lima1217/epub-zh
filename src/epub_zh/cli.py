@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 from typing import Optional
 
@@ -11,10 +12,13 @@ from epub_zh.config import (
     format_settings_rows,
     local_config_path,
     resolve_settings,
+    set_config_value,
     user_config_path,
     write_config_template,
 )
+from epub_zh.epub_io import JobState
 from epub_zh.pipeline import run_dry_run, run_resume, run_translate
+from epub_zh.translate import list_models
 
 app = typer.Typer(
     name="epub-zh",
@@ -162,6 +166,56 @@ def config_show_cmd() -> None:
         typer.echo(f"{name:12} {value}  [{src}]")
     typer.echo(f"user_path    {user_config_path()}")
     typer.echo(f"local_path   {local_config_path()}")
+
+
+@config_app.command("set")
+def config_set_cmd(
+    name: str = typer.Argument(..., help="Setting: api_key, base_url, model, batch_size"),
+    value: str = typer.Argument(..., help="New value"),
+    local: bool = typer.Option(False, "--local", help="Write ./.epub-zh.toml instead of the user config"),
+) -> None:
+    """Set one value in the config file (comments and other lines kept)."""
+    path = local_config_path() if local else user_config_path()
+    try:
+        stored = set_config_value(path, name, value)
+    except (ValueError, tomllib.TOMLDecodeError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    shown = "(redacted)" if name == "api_key" else stored
+    typer.echo(f"{name} = {shown}  -> {path}")
+
+
+@config_app.command("check")
+def config_check_cmd() -> None:
+    """Verify the API key works and the configured model is served (GET /models)."""
+    settings = resolve_settings()
+    key = _require_api_key(settings.api_key)
+    try:
+        models = list_models(api_key=key, base_url=settings.base_url)
+    except Exception as exc:  # noqa: BLE001 — report any gateway/auth failure
+        typer.echo(f"FAIL  could not list models at {settings.base_url}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    if settings.model in models:
+        typer.echo(f"OK    model {settings.model} is served by {settings.base_url}")
+        return
+    typer.echo(
+        f"FAIL  model {settings.model} [{settings.sources.get('model')}] is not served by "
+        f"{settings.base_url}; available: {', '.join(models) or '(none)'}",
+        err=True,
+    )
+    raise typer.Exit(1)
+
+
+@app.command("status")
+def status_cmd(
+    state: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="Path to state.json"
+    ),
+) -> None:
+    """One-line job progress: running / complete / failed (exit 1 when failed)."""
+    job = JobState.load(state)
+    typer.echo(job.status_line())
+    if job.failed_doc:
+        raise typer.Exit(1)
 
 
 @app.command("version")

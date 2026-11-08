@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import re
 import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -8,7 +10,7 @@ from typing import Any, Literal
 
 # DeepSeek official is the built-in default gateway (OpenAI-compatible).
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_MODEL = "deepseek-flash"
 DEFAULT_BATCH_SIZE = 8
 
 CONFIG_FILENAME = "config.toml"
@@ -205,12 +207,12 @@ CONFIG_TEMPLATE = """\
 #
 # Built-in default gateway: DeepSeek official (OpenAI-compatible).
 #   base_url = https://api.deepseek.com/v1
-#   model = deepseek-v4-flash
+#   model = deepseek-flash
 # Any OpenAI-compatible gateway works: point base_url/model at your vendor.
 
 api_key = "sk-..."
 # base_url = "https://api.deepseek.com/v1"
-# model = "deepseek-v4-flash"
+# model = "deepseek-flash"
 # batch_size = 8
 """
 
@@ -225,6 +227,47 @@ def write_config_template(path: Path, *, force: bool = False) -> Path:
     except OSError:
         pass
     return path
+
+
+def set_config_value(path: Path, name: str, raw: str) -> str | int:
+    """Set one field in a config TOML, keeping comments and other lines.
+
+    Replaces the active ``name = ...`` line, else appends one; commented
+    lines are never touched. The result must parse before it is written.
+    """
+    spec = next((s for s in SETTING_FIELDS if s.name == name), None)
+    if spec is None:
+        known = ", ".join(s.name for s in SETTING_FIELDS)
+        raise ValueError(f"Unknown setting {name!r} (known: {known})")
+    value: str | int
+    if spec.kind == "int":
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be an integer") from exc
+    else:
+        value = raw
+    _coerce_field(spec, value, path=path)  # range / type check
+    rendered = f"{name} = {value if isinstance(value, int) else json.dumps(value)}"
+
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    lines = text.splitlines()
+    active = re.compile(rf"^\s*{re.escape(name)}\s*=")
+    hits = [i for i, line in enumerate(lines) if active.match(line)]
+    if hits:
+        lines[hits[0]] = rendered
+    else:
+        lines.append(rendered)
+    new_text = "\n".join(lines) + "\n"
+    tomllib.loads(new_text)  # raises before anything is written
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(new_text, encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return value
 
 
 def format_settings_rows(settings: ResolvedSettings) -> list[tuple[str, str, str]]:

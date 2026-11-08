@@ -111,6 +111,8 @@ def _run_job(*, state: JobState, state_path: Path, api_key: str) -> Path:
 
     docs = list_content_docs(workdir)
     pending = [d for d in docs if _rel_key(workdir, d) not in set(state.completed_docs)]
+    state.total_docs = len(docs)
+    state.save(state_path)
 
     console.print(
         f"[bold]Source[/]: {source}\n"

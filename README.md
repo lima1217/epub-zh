@@ -37,7 +37,7 @@ Optional project override in the current directory: `epub-zh config init --local
 
 **Precedence:** CLI flags > environment variables > `.epub-zh.toml` > `~/.config/epub-zh/config.toml` > defaults.
 
-**Built-in default gateway is DeepSeek official** (OpenAI-compatible): `base_url=https://api.deepseek.com/v1`, `model=deepseek-v4-flash`. Any OpenAI-compatible gateway works — just set `base_url`/`model` to your vendor's.
+**Built-in default gateway is DeepSeek official** (OpenAI-compatible): `base_url=https://api.deepseek.com/v1`, `model=deepseek-flash`. Any OpenAI-compatible gateway works — just set `base_url`/`model` to your vendor's.
 
 Environment variables still work:
 
@@ -45,7 +45,7 @@ Environment variables still work:
 export OPENAI_API_KEY=sk-...
 # optional (DeepSeek default already points here)
 export OPENAI_BASE_URL=https://api.deepseek.com/v1
-export OPENAI_MODEL=deepseek-v4-flash
+export OPENAI_MODEL=deepseek-flash
 ```
 
 Example config.toml:
@@ -53,7 +53,7 @@ Example config.toml:
 ```toml
 api_key = "sk-..."
 base_url = "https://api.deepseek.com/v1"
-model = "deepseek-v4-flash"
+model = "deepseek-flash"
 batch_size = 8
 ```
 

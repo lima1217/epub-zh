@@ -61,6 +61,19 @@ class JobState:
     failed_doc: str | None = None
     error: str | None = None
     batch_size: int = 8
+    total_docs: int | None = None  # None in state files from before this field
+
+    def status_line(self) -> str:
+        """One-line progress summary for ``epub-zh status`` / monitoring."""
+        total = "?" if self.total_docs is None else str(self.total_docs)
+        done = len(self.completed_docs)
+        if self.failed_doc:
+            return f"failed {done}/{total} on {self.failed_doc}: {self.error}"
+        out = Path(self.output)
+        all_done = self.total_docs is None or done >= self.total_docs
+        if all_done and out.is_file():  # output is packed only after the last doc
+            return f"complete {done}/{total} -> {out}"
+        return f"running {done}/{total}"
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
