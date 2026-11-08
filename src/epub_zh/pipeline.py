@@ -4,6 +4,8 @@ import hashlib
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
@@ -28,6 +30,28 @@ from epub_zh.translate import (
 console = Console(stderr=True)
 
 
+@dataclass(frozen=True)
+class JobProgress:
+    """Snapshot passed to ``on_progress`` after every batch and every finished doc."""
+
+    docs_done: int
+    docs_total: int
+    doc: str | None  # doc being translated; None once packing starts
+    blocks_done: int  # within ``doc``
+    blocks_total: int
+
+
+ProgressCallback = Callable[[JobProgress], None]
+
+
+class TranslationFailed(RuntimeError):
+    """A doc failed; ``state.json`` records it so the job can be resumed."""
+
+    def __init__(self, doc: str, cause: BaseException) -> None:
+        super().__init__(f"Failed on {doc}: {cause}")
+        self.doc = doc
+
+
 def _rel_key(workdir: Path, doc: Path) -> str:
     return doc.resolve().relative_to(workdir.resolve()).as_posix()
 
@@ -43,8 +67,12 @@ def run_translate(
     output: Path,
     mode: str,
     settings: ResolvedSettings,
+    on_progress: ProgressCallback | None = None,
 ) -> Path:
-    """Fresh translation job. ``settings.api_key`` must be set."""
+    """Fresh translation job. ``settings.api_key`` must be set.
+
+    Raises ``TranslationFailed`` when a doc fails (state is saved for resume).
+    """
     source = source.resolve()
     output = output.resolve()
     api_key = settings.api_key
@@ -64,10 +92,14 @@ def run_translate(
         batch_size=settings.batch_size,
     )
     state.save(state_path)
-    return _run_job(state=state, state_path=state_path, api_key=api_key)
+    return _run_job(
+        state=state, state_path=state_path, api_key=api_key, on_progress=on_progress
+    )
 
 
-def run_resume(*, state_path: Path, api_key: str) -> Path:
+def run_resume(
+    *, state_path: Path, api_key: str, on_progress: ProgressCallback | None = None
+) -> Path:
     """Resume from ``state.json``. Job params come from state; only the key is passed in."""
     if not api_key:
         raise ValueError("api_key is required for resume")
@@ -76,7 +108,9 @@ def run_resume(*, state_path: Path, api_key: str) -> Path:
     workdir = Path(state.workdir)
     if not workdir.exists():
         raise FileNotFoundError(f"Workdir missing for resume: {workdir}")
-    return _run_job(state=state, state_path=state_path, api_key=api_key)
+    return _run_job(
+        state=state, state_path=state_path, api_key=api_key, on_progress=on_progress
+    )
 
 
 def run_dry_run(*, source: Path, mode: str) -> None:
@@ -102,7 +136,13 @@ def run_dry_run(*, source: Path, mode: str) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _run_job(*, state: JobState, state_path: Path, api_key: str) -> Path:
+def _run_job(
+    *,
+    state: JobState,
+    state_path: Path,
+    api_key: str,
+    on_progress: ProgressCallback | None = None,
+) -> Path:
     source = Path(state.source)
     output = Path(state.output)
     workdir = Path(state.workdir)
@@ -112,6 +152,8 @@ def _run_job(*, state: JobState, state_path: Path, api_key: str) -> Path:
     docs = list_content_docs(workdir)
     pending = [d for d in docs if _rel_key(workdir, d) not in set(state.completed_docs)]
     state.total_docs = len(docs)
+    state.failed_doc = None
+    state.error = None
     state.save(state_path)
 
     console.print(
@@ -133,37 +175,51 @@ def _run_job(*, state: JobState, state_path: Path, api_key: str) -> Path:
         session_id=session_id,
     )
 
+    def report(doc: str | None, blocks_done: int = 0, blocks_total: int = 0) -> None:
+        if on_progress is not None:
+            on_progress(
+                JobProgress(
+                    docs_done=len(state.completed_docs),
+                    docs_total=len(docs),
+                    doc=doc,
+                    blocks_done=blocks_done,
+                    blocks_total=blocks_total,
+                )
+            )
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
         console=console,
+        disable=on_progress is not None,
     ) as progress:
         task = progress.add_task("Translating", total=len(pending))
         for doc in pending:
             key = _rel_key(workdir, doc)
             progress.update(task, description=key)
+            report(key)
             try:
                 _translate_doc(
                     doc=doc,
                     translator=translator,
                     mode=mode,
                     batch_size=batch_size,
+                    on_batch=lambda done, total, key=key: report(key, done, total),
                 )
             except Exception as exc:  # noqa: BLE001 — persist failure for resume
                 state.failed_doc = key
                 state.error = str(exc)
                 state.save(state_path)
                 console.print(f"[red]Failed on {key}: {exc}[/]")
-                raise SystemExit(1) from exc
+                raise TranslationFailed(key, exc) from exc
 
             state.completed_docs.append(key)
-            state.failed_doc = None
-            state.error = None
             state.save(state_path)
             progress.advance(task)
 
+    report(None)
     pack_epub(workdir, output)
     console.print(f"[green]Wrote[/] {output}")
     return state_path
@@ -175,6 +231,7 @@ def _translate_doc(
     translator: Translator,
     mode: str,
     batch_size: int,
+    on_batch: Callable[[int, int], None] | None = None,
 ) -> None:
     tree = parse_xhtml(str(doc))
     units = collect_blocks(tree.getroot())
@@ -185,6 +242,8 @@ def _translate_doc(
     for i in range(0, len(units), batch_size):
         batch = units[i : i + batch_size]
         translations.extend(translator.translate_batch([u.source_text for u in batch]))
+        if on_batch is not None:
+            on_batch(len(translations), len(units))
 
     apply_translations(units, translations, mode)
     doc.write_bytes(serialize_xhtml(tree))

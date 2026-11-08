@@ -17,7 +17,7 @@ from epub_zh.config import (
     write_config_template,
 )
 from epub_zh.epub_io import JobState
-from epub_zh.pipeline import run_dry_run, run_resume, run_translate
+from epub_zh.pipeline import TranslationFailed, run_dry_run, run_resume, run_translate
 from epub_zh.translate import list_models
 
 app = typer.Typer(
@@ -107,7 +107,10 @@ def translate_cmd(
         cli_batch_size=batch_size,
     )
     _require_api_key(settings.api_key)
-    run_translate(source=source, output=output, mode=mode, settings=settings)
+    try:
+        run_translate(source=source, output=output, mode=mode, settings=settings)
+    except TranslationFailed as exc:
+        raise typer.Exit(1) from exc
 
 
 @app.command("resume")
@@ -128,7 +131,10 @@ def resume_cmd(
     """Resume a failed or interrupted translation from state.json."""
     settings = resolve_settings(cli_api_key=api_key)
     key = _require_api_key(settings.api_key)
-    run_resume(state_path=state, api_key=key)
+    try:
+        run_resume(state_path=state, api_key=key)
+    except TranslationFailed as exc:
+        raise typer.Exit(1) from exc
 
 
 @config_app.command("path")
@@ -216,6 +222,42 @@ def status_cmd(
     typer.echo(job.status_line())
     if job.failed_doc:
         raise typer.Exit(1)
+
+
+@app.command("serve")
+def serve_cmd(
+    port: int = typer.Option(8765, "--port", "-p", min=1, max=65535, help="Port on 127.0.0.1 (next free port if taken)"),
+    jobs_dir: Optional[Path] = typer.Option(
+        None,
+        "--jobs-dir",
+        file_okay=False,
+        help="Where uploads and translated books are kept (default: ~/.local/share/epub-zh/jobs)",
+    ),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the page in your browser"),
+) -> None:
+    """Local web page: drag in an EPUB, translate it, save the result."""
+    import webbrowser
+
+    from epub_zh.server import bind_server, default_jobs_dir
+
+    directory = (jobs_dir or default_jobs_dir()).expanduser().resolve()
+    try:
+        server = bind_server(port=port, jobs_dir=directory)
+    except OSError as exc:
+        typer.echo(f"Could not start server: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    typer.echo(f"epub-zh web UI: {url}")
+    typer.echo(f"Jobs: {directory}")
+    typer.echo("Keep this terminal open while books translate. Ctrl+C to stop.")
+    if open_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        typer.echo("\nStopped. Unfinished jobs can be resumed next time from the page.")
+    finally:
+        server.server_close()
 
 
 @app.command("version")

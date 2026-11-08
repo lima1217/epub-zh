@@ -57,6 +57,18 @@ model = "deepseek-flash"
 batch_size = 8
 ```
 
+## Web UI (drag & drop)
+
+```bash
+epub-zh serve
+```
+
+Opens `http://127.0.0.1:8765/` in your browser. Drag one or more EPUB files onto the page, pick **仅中文** or **中英对照**, and click **保存到本地** when a book finishes. API key / base URL / model can be set from the page's **设置** dialog (writes the same `~/.config/epub-zh/config.toml` the CLI uses).
+
+- The server listens on 127.0.0.1 only. Keep its terminal open while books translate; closing the browser tab does not stop a job.
+- Uploads and results live in `~/.local/share/epub-zh/jobs/` (`--jobs-dir` to change). After a restart, unfinished jobs show **继续** and resume where they stopped.
+- Books translate one at a time, in upload order. `--port` picks another port; `--no-open` skips opening the browser.
+
 ## Usage
 
 ```bash

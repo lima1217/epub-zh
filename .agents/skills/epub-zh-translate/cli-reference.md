@@ -119,6 +119,10 @@ Reloads `source`, `output`, `mode`, `model`, `base_url`, `batch_size`, `workdir`
 
 `STATE` → one-line progress (see § Monitor from the agent). Exit 1 when the job failed.
 
+### `epub-zh serve`
+
+Local drag-and-drop web page for humans (`--port 8765`, `--jobs-dir`, `--open/--no-open`). Long-running like `translate`: launch it in a *host terminal*, not the agent shell. Binds 127.0.0.1; jobs persist under `~/.local/share/epub-zh/jobs/<id>/` (`meta.json`, `source.epub`, `output.epub`, `.epub-zh-state/output/state.json`), so `epub-zh status` works on a web job's `state.json` too.
+
 ### `epub-zh version`
 
 Print package version.

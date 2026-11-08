@@ -12,7 +12,7 @@ Drive translation through the CLI.
 
 *pipeline* / *dry-run* / *resume* / *config*: [`.agents/skills/epub-zh-translate/SKILL.md`](.agents/skills/epub-zh-translate/SKILL.md). Flags, state, *host terminal* launch: [`cli-reference.md`](.agents/skills/epub-zh-translate/cli-reference.md).
 
-*pipeline* and *resume* run in a *host terminal* (OS Terminal / iTerm). Short checks (`version`, `config`, `--dry-run`) may use the agent shell.
+*pipeline*, *resume*, and `serve` (web UI) run in a *host terminal* (OS Terminal / iTerm). Short checks (`version`, `config`, `--dry-run`) may use the agent shell.
 
 ## Install so `epub-zh` is on PATH
 
@@ -120,6 +120,8 @@ python -m pytest -q          # from repo with dev deps
 | `src/epub_zh/cli.py` | Typer CLI |
 | `src/epub_zh/config.py` | Config load / precedence |
 | `src/epub_zh/pipeline.py` | Translate / dry-run / resume orchestration |
+| `src/epub_zh/server.py` | `epub-zh serve`: stdlib HTTP server, job queue |
+| `src/epub_zh/web/index.html` | Drag-and-drop page served by `serve` |
 | `src/epub_zh/translate.py` | XHTML blocks + LLM batch + retries |
 | `src/epub_zh/epub_io.py` | Unpack/pack EPUB, state, zip-slip guards |
 | `tests/` | Unit tests |

@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EPUB 中译</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --line: #e3e1dc; --accent: #c2410c; --accent-soft: #fff1e8;
+    --ok: #15803d; --err: #b91c1c; --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161616; --card: #1f1f1f; --text: #f2f2f2; --muted: #9a9a9f;
+      --line: #333; --accent: #fb923c; --accent-soft: #2a1a10;
+      --ok: #4ade80; --err: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: .5px; }
+  h1 small { font-weight: 400; color: var(--muted); font-size: 14px; margin-left: 8px; }
+  button {
+    font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 9px; padding: 6px 14px; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--err); }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .banner {
+    background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius);
+    padding: 12px 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+
+  #drop {
+    border: 2px dashed var(--line); border-radius: var(--radius); background: var(--card);
+    padding: 44px 20px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  #drop:hover, body.dragging #drop { border-color: var(--accent); background: var(--accent-soft); }
+  #drop .big { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+  #drop .hint { color: var(--muted); font-size: 13px; }
+
+  .modes { display: flex; justify-content: center; gap: 0; margin: 18px 0 30px; }
+  .modes label {
+    border: 1px solid var(--line); padding: 6px 18px; cursor: pointer; background: var(--card); user-select: none;
+  }
+  .modes label:first-child { border-radius: 9px 0 0 9px; }
+  .modes label:last-child { border-radius: 0 9px 9px 0; border-left: none; }
+  .modes input { display: none; }
+  .modes input:checked + span { color: var(--accent); font-weight: 600; }
+
+  h2 { font-size: 15px; color: var(--muted); font-weight: 500; margin: 0 0 10px; }
+  .empty { color: var(--muted); text-align: center; padding: 24px; }
+  .job {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px;
+  }
+  .job .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .job .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; margin-left: 6px; font-weight: 400; }
+  .status { font-size: 13px; white-space: nowrap; }
+  .status.done { color: var(--ok); } .status.failed { color: var(--err); }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 10px 0 6px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); transition: width .4s; }
+  .job.done .bar > div { background: var(--ok); }
+  .detail { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail.err { color: var(--err); white-space: normal; }
+  .actions { display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end; }
+
+  dialog {
+    border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--text);
+    padding: 22px; width: min(480px, 92vw);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog h3 { margin: 0 0 14px; }
+  dialog label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  dialog input {
+    width: 100%; font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--text);
+  }
+  dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+  #checkMsg { font-size: 13px; margin-top: 12px; min-height: 1.2em; }
+  .path { font-size: 12px; color: var(--muted); margin-top: 10px; word-break: break-all; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--text); color: var(--bg);
+    padding: 8px 16px; border-radius: 9px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  #toast.show { opacity: .92; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>EPUB 中译<small>英文电子书 → 简体中文</small></h1>
+    <button id="openSettings">设置</button>
+  </header>
+
+  <div id="keyBanner" class="banner" hidden>
+    <span>还没有配置 API Key，翻译前需要先设置。</span>
+    <button class="primary" id="bannerSettings">去设置</button>
+  </div>
+
+  <div id="drop" tabindex="0" role="button" aria-label="选择或拖入 EPUB 文件">
+    <div class="big">把 EPUB 文件拖到这里</div>
+    <div class="hint">或点击选择文件 · 可一次放入多本，按顺序翻译</div>
+    <input type="file" id="file" accept=".epub,application/epub+zip" multiple hidden>
+  </div>
+
+  <div class="modes">
+    <label><input type="radio" name="mode" value="zh" checked><span>仅中文</span></label>
+    <label><input type="radio" name="mode" value="bilingual"><span>中英对照</span></label>
+  </div>
+
+  <h2>任务</h2>
+  <div id="jobs"><div class="empty">还没有任务</div></div>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h3>设置</h3>
+    <label for="sKey">API Key <span id="keyNow"></span></label>
+    <input id="sKey" type="password" autocomplete="off" placeholder="留空则保持不变">
+    <label for="sBase">Base URL</label>
+    <input id="sBase" type="url" placeholder="https://api.deepseek.com/v1">
+    <label for="sModel">模型</label>
+    <input id="sModel" type="text">
+    <label for="sBatch">每批段落数（1–40）</label>
+    <input id="sBatch" type="number" min="1" max="40">
+    <div id="checkMsg"></div>
+    <div class="path">保存到 <span id="cfgPath"></span>（命令行和网页共用）</div>
+    <div class="row">
+      <button type="button" id="checkBtn">测试连接</button>
+      <button value="cancel" formnovalidate>关闭</button>
+      <button type="button" class="primary" id="saveBtn">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const STATUS = { queued: "排队中", running: "翻译中", done: "已完成", failed: "失败", cancelled: "已取消" };
+const MODE = { zh: "仅中文", bilingual: "中英对照" };
+let jobs = [];
+let settings = null;
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, opts);
+  const isJson = (res.headers.get("Content-Type") || "").includes("json");
+  const body = isJson ? await res.json() : null;
+  if (!res.ok) throw new Error((body && body.error) || res.statusText);
+  return body;
+}
+
+// ---------- upload ----------
+const drop = $("#drop"), fileInput = $("#file");
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") fileInput.click(); });
+fileInput.addEventListener("change", () => { upload([...fileInput.files]); fileInput.value = ""; });
+
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; document.body.classList.add("dragging"); });
+window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging");
+  upload([...e.dataTransfer.files]);
+});
+
+async function upload(files) {
+  const epubs = files.filter((f) => f.name.toLowerCase().endsWith(".epub"));
+  if (files.length && !epubs.length) return toast("只支持 .epub 文件");
+  if (settings && !settings.has_key) openSettings();
+  const mode = document.querySelector("input[name=mode]:checked").value;
+  for (const f of epubs) {
+    try {
+      const qs = new URLSearchParams({ mode, filename: f.name });
+      await api(`/api/jobs?${qs}`, { method: "POST", body: f, headers: { "Content-Type": "application/epub+zip" } });
+      toast(`已加入：${f.name}`);
+    } catch (err) {
+      toast(`${f.name}：${err.message}`);
+    }
+  }
+  refresh();
+}
+
+// ---------- jobs ----------
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else if (v != null) n.setAttribute(k, v);
+  }
+  for (const k of kids) n.append(k);
+  return n;
+}
+
+function render() {
+  const box = $("#jobs");
+  if (!jobs.length) { box.replaceChildren(el("div", { class: "empty" }, "还没有任务")); return; }
+  box.replaceChildren(...jobs.map((j) => {
+    const actions = [];
+    if (j.status === "done") actions.push(el("button", { class: "primary", onclick: () => save(j) }, "保存到本地"));
+    if (j.status === "failed" || j.status === "cancelled")
+      actions.push(el("button", { class: "primary", onclick: () => act(j, "resume") }, "继续"));
+    if (j.status === "running" || j.status === "queued")
+      actions.push(el("button", { onclick: () => act(j, "cancel") }, "取消"));
+    if (j.status !== "running")
+      actions.push(el("button", { class: "danger", onclick: () => remove(j) }, "删除"));
+
+    let detail;
+    if (j.status === "failed" && j.error) detail = el("div", { class: "detail err" }, j.error);
+    else if (j.status === "running") detail = el("div", { class: "detail" },
+      j.docs_total ? `第 ${Math.min(j.docs_done + 1, j.docs_total)} / ${j.docs_total} 个文件` + (j.doc ? ` · ${j.doc}` : " · 正在打包") : "正在解包…");
+    else if (j.status === "done") detail = el("div", { class: "detail" }, j.download_name);
+    else detail = el("div", { class: "detail" }, j.docs_total ? `已完成 ${j.docs_done} / ${j.docs_total} 个文件` : "");
+
+    return el("div", { class: `job ${j.status}` },
+      el("div", { class: "top" },
+        el("div", { class: "name", title: j.filename }, j.filename, el("span", { class: "badge" }, MODE[j.mode] || j.mode)),
+        el("div", { class: `status ${j.status}` }, STATUS[j.status] + (j.status === "running" ? ` ${j.percent}%` : ""))),
+      el("div", { class: "bar" }, el("div", { style: `width:${j.percent}%` })),
+      detail,
+      el("div", { class: "actions" }, ...actions));
+  }));
+}
+
+async function refresh() {
+  try { jobs = await api("/api/jobs"); render(); }
+  catch { /* server stopped; keep last view */ }
+}
+
+async function act(j, action) {
+  try { await api(`/api/jobs/${j.id}/${action}`, { method: "POST" }); }
+  catch (err) { toast(err.message); }
+  refresh();
+}
+
+async function remove(j) {
+  if (!confirm(`删除「${j.filename}」的任务和译文？保存到本地的文件不受影响。`)) return;
+  try { await api(`/api/jobs/${j.id}`, { method: "DELETE" }); } catch (err) { toast(err.message); }
+  refresh();
+}
+
+async function save(j) {
+  const url = `/api/jobs/${j.id}/download`;
+  if (window.showSaveFilePicker) {
+    let handle;
+    try {
+      handle = await showSaveFilePicker({
+        suggestedName: j.download_name,
+        types: [{ description: "EPUB 电子书", accept: { "application/epub+zip": [".epub"] } }],
+      });
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      handle = null; // picker unavailable here; fall back to a normal download
+    }
+    if (handle) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(res.statusText);
+        const w = await handle.createWritable();
+        await res.body.pipeTo(w);
+        return toast(`已保存：${handle.name}`);
+      } catch (err) { return toast(`保存失败：${err.message}`); }
+    }
+  }
+  const a = el("a", { href: url, download: j.download_name });
+  document.body.append(a); a.click(); a.remove();
+  toast("已开始下载");
+}
+
+function poll() {
+  const busy = jobs.some((j) => j.status === "running" || j.status === "queued");
+  refresh().finally(() => setTimeout(poll, busy ? 1200 : 4000));
+}
+
+// ---------- settings ----------
+async function loadSettings() {
+  settings = await api("/api/settings");
+  $("#keyBanner").hidden = settings.has_key;
+}
+
+function openSettings() {
+  if (!settings) return;
+  $("#sKey").value = "";
+  $("#keyNow").textContent = settings.has_key ? `（当前 ${settings.rows.api_key.value}）` : "（未设置）";
+  $("#sBase").value = settings.base_url || "";
+  $("#sModel").value = settings.model || "";
+  $("#sBatch").value = settings.batch_size || 8;
+  $("#cfgPath").textContent = settings.config_path;
+  $("#checkMsg").textContent = "";
+  $("#settings").showModal();
+}
+
+async function saveSettings() {
+  const body = {
+    api_key: $("#sKey").value, base_url: $("#sBase").value,
+    model: $("#sModel").value, batch_size: $("#sBatch").value,
+  };
+  try {
+    settings = await api("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    $("#keyBanner").hidden = settings.has_key;
+    $("#sKey").value = "";
+    $("#keyNow").textContent = settings.has_key ? `（当前 ${settings.rows.api_key.value}）` : "（未设置）";
+    return true;
+  } catch (err) {
+    $("#checkMsg").style.color = "var(--err)"; $("#checkMsg").textContent = err.message;
+    return false;
+  }
+}
+
+$("#openSettings").addEventListener("click", openSettings);
+$("#bannerSettings").addEventListener("click", openSettings);
+$("#saveBtn").addEventListener("click", async () => {
+  if (await saveSettings()) { $("#settings").close(); toast("设置已保存"); }
+});
+$("#checkBtn").addEventListener("click", async () => {
+  const msg = $("#checkMsg");
+  if (!(await saveSettings())) return;
+  msg.style.color = "var(--muted)"; msg.textContent = "正在测试…";
+  try {
+    const r = await api("/api/settings/check", { method: "POST" });
+    msg.style.color = r.ok ? "var(--ok)" : "var(--err)"; msg.textContent = r.message;
+  } catch (err) { msg.style.color = "var(--err)"; msg.textContent = err.message; }
+});
+
+loadSettings().catch(() => {});
+poll();
+</script>
+</body>
+</html>
