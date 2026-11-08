@@ -74,12 +74,14 @@ Gate: `epub-zh version`. On `command not found`, install per [`AGENTS.md`](../..
 api_key = "sk-..."
 base_url = "https://api.deepseek.com/v1"   # optional; built-in default is DeepSeek official
 model = "deepseek-flash"                   # optional
-batch_size = 8                           # optional, 1..40
+batch_size = 40                          # optional, max blocks per API call, 1..40
+batch_chars = 3000                       # optional, target source chars per API call, 200..20000
+concurrency = 8                          # optional, API calls in flight, 1..32 (lower on 429s)
 ```
 
 OpenAI-compatible providers: that vendor’s `base_url`, `api_key`, and `model`. Built-in defaults point at **DeepSeek official** (`base_url=https://api.deepseek.com/v1`, `model=deepseek-flash`).
 
-**Precedence (high → low):** CLI flags → `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` → `.epub-zh.toml` → user `config.toml` → defaults (`deepseek-flash`, DeepSeek official base, batch 8).
+**Precedence (high → low):** CLI flags → `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` → `.epub-zh.toml` → user `config.toml` → defaults (`deepseek-flash`, DeepSeek official base, `batch_size` 40, `batch_chars` 3000, `concurrency` 8).
 
 | Subcommand | Role |
 |------------|------|
@@ -103,8 +105,10 @@ OpenAI-compatible providers: that vendor’s `base_url`, `api_key`, and `model`.
 | `--model` | Override model (else env / config / `deepseek-flash`) |
 | `--base-url` | Override API base (else env / config / DeepSeek official `https://api.deepseek.com/v1`) |
 | `--api-key` | Override key (else env / config) |
-| `--batch-size` | Blocks per API call (1–40; else config / 8) |
-| `--dry-run` | Parse + count blocks only; no API, no state, no output |
+| `--batch-size` | Max blocks per API call (1–40; else config / 40); batches are packed to ~`batch_chars` source characters |
+| `-j` / `--concurrency` | API calls in flight (1–32; else config / 8) |
+| `--skip-refs` | Leave bibliography and index docs in English (stored in state, kept on resume) |
+| `--dry-run` | Parse + count blocks, mark bibliography/index docs, estimate API calls; no API, no state, no output |
 
 ### `epub-zh resume`
 
@@ -112,8 +116,9 @@ OpenAI-compatible providers: that vendor’s `base_url`, `api_key`, and `model`.
 |-----------------|------|
 | `STATE` | Path to `state.json` from a prior run |
 | `--api-key` | Same as translate |
+| `-j` / `--concurrency` | Same as translate (not stored in state) |
 
-Reloads `source`, `output`, `mode`, `model`, `base_url`, `batch_size`, `workdir`, `completed_docs` from state. API key from config / env / flag only.
+Reloads `source`, `output`, `mode`, `model`, `base_url`, `batch_size`, `batch_chars`, `skip_refs`, `workdir`, `completed_docs` from state. API key from config / env / flag only.
 
 ### `epub-zh status`
 

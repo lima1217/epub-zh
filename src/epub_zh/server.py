@@ -36,7 +36,7 @@ from epub_zh.translate import list_models
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 MODES = {"zh", "bilingual"}
 _JOB_ID = re.compile(r"^[0-9a-f]{12}$")
-_SETTABLE = ("api_key", "base_url", "model", "batch_size")
+_SETTABLE = ("api_key", "base_url", "model", "batch_size", "concurrency")
 
 
 def default_jobs_dir() -> Path:
@@ -55,6 +55,7 @@ class Job:
     mode: str
     created: float
     dir: Path
+    skip_refs: bool = False
     status: str = "queued"  # queued | running | done | failed | cancelled
     error: str | None = None
     progress: JobProgress | None = None
@@ -79,29 +80,32 @@ class Job:
         return f"{stem}.{suffix}.epub"
 
     def save_meta(self) -> None:
-        meta = {"id": self.id, "filename": self.filename, "mode": self.mode, "created": self.created}
+        meta = {
+            "id": self.id,
+            "filename": self.filename,
+            "mode": self.mode,
+            "created": self.created,
+            "skip_refs": self.skip_refs,
+        }
         (self.dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
     def to_dict(self) -> dict[str, Any]:
         p = self.progress
-        percent = 0.0
-        if self.status == "done":
-            percent = 100.0
-        elif p and p.docs_total:
-            within = p.blocks_done / p.blocks_total if p.blocks_total else 0.0
-            percent = min(99.9, 100.0 * (p.docs_done + within) / p.docs_total)
+        percent = 100.0 if self.status == "done" else min(99.9, 100.0 * p.fraction) if p else 0.0
         return {
             "id": self.id,
             "filename": self.filename,
             "download_name": self.download_name,
             "mode": self.mode,
+            "skip_refs": self.skip_refs,
             "created": self.created,
             "status": self.status,
             "error": self.error,
             "percent": round(percent, 1),
             "docs_done": p.docs_done if p else 0,
             "docs_total": p.docs_total if p else 0,
-            "doc": p.doc if p else None,
+            "blocks_done": p.blocks_done if p else 0,
+            "blocks_total": p.blocks_total if p else 0,
         }
 
 
@@ -134,6 +138,7 @@ class JobManager:
                     mode=meta["mode"],
                     created=float(meta["created"]),
                     dir=meta_path.parent,
+                    skip_refs=bool(meta.get("skip_refs", False)),
                 )
             except (OSError, ValueError, KeyError):
                 continue
@@ -146,7 +151,8 @@ class JobManager:
                 job.status = "failed"
                 job.error = (state.error if state and state.error else None) or "服务重启前未完成，可点“继续”"
             if state and state.total_docs:
-                job.progress = JobProgress(len(state.completed_docs), state.total_docs, None, 0, 0)
+                done = len(state.completed_docs)
+                job.progress = JobProgress(done, state.total_docs, 0, 0, done / state.total_docs)
             self.jobs[job.id] = job
 
     @staticmethod
@@ -167,7 +173,7 @@ class JobManager:
         with self.lock:
             return self.jobs.get(job_id)
 
-    def create(self, *, filename: str, mode: str, data: bytes) -> Job:
+    def create(self, *, filename: str, mode: str, data: bytes, skip_refs: bool = False) -> Job:
         if mode not in MODES:
             raise ValueError("mode must be 'zh' or 'bilingual'")
         filename = _clean_filename(filename)
@@ -178,7 +184,9 @@ class JobManager:
         job_id = uuid.uuid4().hex[:12]
         job_dir = self.jobs_dir / job_id
         job_dir.mkdir(parents=True)
-        job = Job(id=job_id, filename=filename, mode=mode, created=time.time(), dir=job_dir)
+        job = Job(
+            id=job_id, filename=filename, mode=mode, created=time.time(), dir=job_dir, skip_refs=skip_refs
+        )
         job.source.write_bytes(data)
         job.save_meta()
         with self.lock:
@@ -240,13 +248,19 @@ class JobManager:
                 raise RuntimeError("还没有配置 API Key，请在“设置”里填写")
             state = self._read_state(job)
             if state is not None and Path(state.workdir).is_dir():
-                run_resume(state_path=job.state_path, api_key=settings.api_key, on_progress=on_progress)
+                run_resume(
+                    state_path=job.state_path,
+                    api_key=settings.api_key,
+                    concurrency=settings.concurrency,
+                    on_progress=on_progress,
+                )
             else:
                 run_translate(
                     source=job.source,
                     output=job.output,
                     mode=job.mode,
                     settings=settings,
+                    skip_refs=job.skip_refs,
                     on_progress=on_progress,
                 )
         except Exception as exc:  # noqa: BLE001 — surface any failure in the UI
@@ -275,6 +289,7 @@ def _settings_payload() -> dict[str, Any]:
         "model": settings.model,
         "base_url": settings.base_url,
         "batch_size": settings.batch_size,
+        "concurrency": settings.concurrency,
         "rows": rows,
         "config_path": str(user_config_path()),
     }
@@ -387,11 +402,12 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["api", "jobs"]:
             mode = (query.get("mode") or ["zh"])[0]
             filename = (query.get("filename") or ["book.epub"])[0]
+            skip_refs = (query.get("skip_refs") or ["0"])[0] in {"1", "true"}
             data = self._read_body(MAX_UPLOAD_BYTES)
             if data is None:
                 return
             try:
-                job = self.manager.create(filename=filename, mode=mode, data=data)
+                job = self.manager.create(filename=filename, mode=mode, data=data, skip_refs=skip_refs)
             except ValueError as exc:
                 return self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return self._json(job.to_dict(), HTTPStatus.CREATED)

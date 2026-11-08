@@ -60,8 +60,10 @@ class JobState:
     completed_docs: list[str] = field(default_factory=list)
     failed_doc: str | None = None
     error: str | None = None
-    batch_size: int = 8
+    batch_size: int = 8  # max blocks per API call
     total_docs: int | None = None  # None in state files from before this field
+    batch_chars: int = 3000  # target source characters per API call
+    skip_refs: bool = False  # leave bibliography / index docs untranslated
 
     def status_line(self) -> str:
         """One-line progress summary for ``epub-zh status`` / monitoring."""

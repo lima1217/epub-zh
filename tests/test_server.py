@@ -109,8 +109,8 @@ def _wait_status(base: str, job_id: str, want: str, timeout: float = 5) -> dict:
     raise AssertionError(f"job never reached {want}: {job}")
 
 
-def _upload(base: str, data: bytes, name: str = "My Book.epub", mode: str = "zh") -> dict:
-    q = urllib.parse.urlencode({"filename": name, "mode": mode})
+def _upload(base: str, data: bytes, name: str = "My Book.epub", mode: str = "zh", skip_refs: bool = False) -> dict:
+    q = urllib.parse.urlencode({"filename": name, "mode": mode, "skip_refs": "1" if skip_refs else "0"})
     status, _, body = _req(base, f"/api/jobs?{q}", "POST", data)
     assert status == 201, body
     return json.loads(body)
@@ -126,8 +126,8 @@ def test_run_translate_reports_progress(tmp_path: Path) -> None:
     run_translate(
         source=src, output=tmp_path / "o.epub", mode="zh", settings=_settings(batch_size=2), on_progress=seen.append
     )
-    assert [(p.blocks_done, p.blocks_total) for p in seen if p.doc] == [(0, 0), (2, 3), (3, 3)]
-    assert seen[-1].doc is None and seen[-1].docs_done == 1
+    assert [(p.blocks_done, p.blocks_total) for p in seen] == [(0, 3), (2, 3), (3, 3)]
+    assert seen[-1].docs_done == 1 and seen[-1].fraction == 1.0
 
 
 def test_failure_raises_translation_failed_and_saves_state(tmp_path: Path) -> None:
@@ -153,8 +153,10 @@ def test_index_page_served(app) -> None:
 
 
 def test_upload_translate_download(app) -> None:
-    base, _ = app
-    job = _upload(base, _epub_bytes(["Hello there."]), name="My Book.epub", mode="bilingual")
+    base, manager = app
+    job = _upload(base, _epub_bytes(["Hello there."]), name="My Book.epub", mode="bilingual", skip_refs=True)
+    assert job["skip_refs"] is True
+    assert json.loads((manager.jobs_dir / job["id"] / "meta.json").read_text())["skip_refs"] is True
     done = _wait_status(base, job["id"], "done")
     assert done["percent"] == 100 and done["download_name"] == "My Book.bilingual.epub"
 

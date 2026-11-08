@@ -9,6 +9,7 @@ import typer
 from epub_zh import __version__
 from epub_zh.config import (
     DEFAULT_BATCH_SIZE,
+    DEFAULT_CONCURRENCY,
     format_settings_rows,
     local_config_path,
     resolve_settings,
@@ -81,7 +82,20 @@ def translate_cmd(
         "--batch-size",
         min=1,
         max=40,
-        help=f"Blocks per API call (default: config or {DEFAULT_BATCH_SIZE})",
+        help=f"Max blocks per API call (default: config or {DEFAULT_BATCH_SIZE})",
+    ),
+    concurrency: Optional[int] = typer.Option(
+        None,
+        "--concurrency",
+        "-j",
+        min=1,
+        max=32,
+        help=f"API calls in flight at once (default: config or {DEFAULT_CONCURRENCY})",
+    ),
+    skip_refs: bool = typer.Option(
+        False,
+        "--skip-refs",
+        help="Leave bibliography and index untranslated (kept in English)",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -95,20 +109,29 @@ def translate_cmd(
     if not dry_run and output is None:
         raise typer.BadParameter("--output is required unless --dry-run", param_hint="--output")
 
-    if dry_run:
-        run_dry_run(source=source, mode=mode)
-        return
-
-    assert output is not None  # validated above
     settings = resolve_settings(
         cli_api_key=api_key,
         cli_base_url=base_url,
         cli_model=model,
         cli_batch_size=batch_size,
+        cli_concurrency=concurrency,
     )
+    if dry_run:
+        run_dry_run(
+            source=source,
+            mode=mode,
+            skip_refs=skip_refs,
+            batch_size=settings.batch_size,
+            batch_chars=settings.batch_chars,
+        )
+        return
+
+    assert output is not None  # validated above
     _require_api_key(settings.api_key)
     try:
-        run_translate(source=source, output=output, mode=mode, settings=settings)
+        run_translate(
+            source=source, output=output, mode=mode, settings=settings, skip_refs=skip_refs
+        )
     except TranslationFailed as exc:
         raise typer.Exit(1) from exc
 
@@ -127,12 +150,20 @@ def resume_cmd(
         "--api-key",
         help="API key (overrides config / OPENAI_API_KEY)",
     ),
+    concurrency: Optional[int] = typer.Option(
+        None,
+        "--concurrency",
+        "-j",
+        min=1,
+        max=32,
+        help=f"API calls in flight at once (default: config or {DEFAULT_CONCURRENCY})",
+    ),
 ) -> None:
     """Resume a failed or interrupted translation from state.json."""
-    settings = resolve_settings(cli_api_key=api_key)
+    settings = resolve_settings(cli_api_key=api_key, cli_concurrency=concurrency)
     key = _require_api_key(settings.api_key)
     try:
-        run_resume(state_path=state, api_key=key)
+        run_resume(state_path=state, api_key=key, concurrency=settings.concurrency)
     except TranslationFailed as exc:
         raise typer.Exit(1) from exc
 
@@ -176,7 +207,7 @@ def config_show_cmd() -> None:
 
 @config_app.command("set")
 def config_set_cmd(
-    name: str = typer.Argument(..., help="Setting: api_key, base_url, model, batch_size"),
+    name: str = typer.Argument(..., help="Setting: api_key, base_url, model, batch_size, batch_chars, concurrency"),
     value: str = typer.Argument(..., help="New value"),
     local: bool = typer.Option(False, "--local", help="Write ./.epub-zh.toml instead of the user config"),
 ) -> None:

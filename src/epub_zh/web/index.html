@@ -57,6 +57,9 @@
   }
   .choice:hover, .choice:focus-visible { border-color: var(--accent); background: var(--accent-soft); outline: none; }
   .choice b { font-size: 16px; }
+  .pick-opt { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 14px; cursor: pointer; }
+  .pick-opt input { width: auto; margin: 0; }
+  .pick-opt small { color: var(--muted); }
   .choice span { font-size: 12px; color: var(--muted); }
   h2 { font-size: 15px; color: var(--muted); font-weight: 500; margin: 0 0 10px; }
   .empty { color: var(--muted); text-align: center; padding: 24px; }
@@ -127,6 +130,7 @@
     <button class="choice" data-mode="zh"><b>仅中文</b><span>正文替换为中文译文</span></button>
     <button class="choice" data-mode="bilingual"><b>中英对照</b><span>每段英文后跟一段中文</span></button>
   </div>
+  <label class="pick-opt"><input type="checkbox" id="pickSkipRefs">跳过参考文献和索引<small>（保留英文原文，翻得更快）</small></label>
   <div class="row"><button id="pickCancel">取消</button></div>
 </dialog>
 
@@ -139,7 +143,9 @@
     <input id="sBase" type="url" placeholder="https://api.deepseek.com/v1">
     <label for="sModel">模型</label>
     <input id="sModel" type="text">
-    <label for="sBatch">每批段落数（1–40）</label>
+    <label for="sConc">同时请求数（1–32，遇到限流报错就调小）</label>
+    <input id="sConc" type="number" min="1" max="32">
+    <label for="sBatch">每次请求最多段落数（1–40）</label>
     <input id="sBatch" type="number" min="1" max="40">
     <div id="checkMsg"></div>
     <div class="path">保存到 <span id="cfgPath"></span>（命令行和网页共用）</div>
@@ -194,6 +200,7 @@ function pickMode(files) {
   const dlg = $("#modePick");
   $("#pickFiles").textContent = files.length === 1 ? files[0].name : `${files.length} 本：` + files.map((f) => f.name).join("、");
   const last = localStorage.getItem("epub-zh-mode") || "zh";
+  $("#pickSkipRefs").checked = localStorage.getItem("epub-zh-skip-refs") === "1";
   return new Promise((resolve) => {
     const done = (mode) => {
       dlg.removeEventListener("close", onClose);
@@ -215,11 +222,13 @@ async function upload(files) {
   if ($("#modePick").open) return toast("请先为上一批文件选择翻译格式");
   const mode = await pickMode(epubs);
   if (!mode) return;
+  const skipRefs = $("#pickSkipRefs").checked;
   localStorage.setItem("epub-zh-mode", mode);
+  localStorage.setItem("epub-zh-skip-refs", skipRefs ? "1" : "0");
   if (settings && !settings.has_key) openSettings();
   for (const f of epubs) {
     try {
-      const qs = new URLSearchParams({ mode, filename: f.name });
+      const qs = new URLSearchParams({ mode, filename: f.name, skip_refs: skipRefs ? "1" : "0" });
       await api(`/api/jobs?${qs}`, { method: "POST", body: f, headers: { "Content-Type": "application/epub+zip" } });
       toast(`已加入：${f.name}`);
     } catch (err) {
@@ -255,13 +264,16 @@ function render() {
     let detail;
     if (j.status === "failed" && j.error) detail = el("div", { class: "detail err" }, j.error);
     else if (j.status === "running") detail = el("div", { class: "detail" },
-      j.docs_total ? `第 ${Math.min(j.docs_done + 1, j.docs_total)} / ${j.docs_total} 个文件` + (j.doc ? ` · ${j.doc}` : " · 正在打包") : "正在解包…");
+      !j.docs_total ? "正在解包…"
+        : j.docs_done >= j.docs_total ? "正在打包…"
+        : `已完成 ${j.docs_done} / ${j.docs_total} 个文件` + (j.blocks_total ? ` · 段落 ${j.blocks_done} / ${j.blocks_total}` : ""));
     else if (j.status === "done") detail = el("div", { class: "detail" }, j.download_name);
     else detail = el("div", { class: "detail" }, j.docs_total ? `已完成 ${j.docs_done} / ${j.docs_total} 个文件` : "");
 
     return el("div", { class: `job ${j.status}` },
       el("div", { class: "top" },
-        el("div", { class: "name", title: j.filename }, j.filename, el("span", { class: "badge" }, MODE[j.mode] || j.mode)),
+        el("div", { class: "name", title: j.filename }, j.filename, el("span", { class: "badge" }, MODE[j.mode] || j.mode),
+          j.skip_refs ? el("span", { class: "badge" }, "跳过参考文献") : ""),
         el("div", { class: `status ${j.status}` }, STATUS[j.status] + (j.status === "running" ? ` ${j.percent}%` : ""))),
       el("div", { class: "bar" }, el("div", { style: `width:${j.percent}%` })),
       detail,
@@ -331,7 +343,8 @@ function openSettings() {
   $("#keyNow").textContent = settings.has_key ? `（当前 ${settings.rows.api_key.value}）` : "（未设置）";
   $("#sBase").value = settings.base_url || "";
   $("#sModel").value = settings.model || "";
-  $("#sBatch").value = settings.batch_size || 8;
+  $("#sBatch").value = settings.batch_size || 40;
+  $("#sConc").value = settings.concurrency || 8;
   $("#cfgPath").textContent = settings.config_path;
   $("#checkMsg").textContent = "";
   $("#settings").showModal();
@@ -340,7 +353,7 @@ function openSettings() {
 async function saveSettings() {
   const body = {
     api_key: $("#sKey").value, base_url: $("#sBase").value,
-    model: $("#sModel").value, batch_size: $("#sBatch").value,
+    model: $("#sModel").value, batch_size: $("#sBatch").value, concurrency: $("#sConc").value,
   };
   try {
     settings = await api("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

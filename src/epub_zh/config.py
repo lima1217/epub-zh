@@ -11,7 +11,9 @@ from typing import Any, Literal
 # DeepSeek official is the built-in default gateway (OpenAI-compatible).
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-flash"
-DEFAULT_BATCH_SIZE = 8
+DEFAULT_BATCH_SIZE = 40  # max blocks per API call
+DEFAULT_BATCH_CHARS = 3000  # target source characters per API call
+DEFAULT_CONCURRENCY = 8  # API calls in flight at once
 
 CONFIG_FILENAME = "config.toml"
 LOCAL_CONFIG_NAME = ".epub-zh.toml"
@@ -37,6 +39,18 @@ SETTING_FIELDS: tuple[FieldSpec, ...] = (
         default=DEFAULT_BATCH_SIZE,
         int_range=(1, 40),
     ),
+    FieldSpec(
+        "batch_chars",
+        kind="int",
+        default=DEFAULT_BATCH_CHARS,
+        int_range=(200, 20000),
+    ),
+    FieldSpec(
+        "concurrency",
+        kind="int",
+        default=DEFAULT_CONCURRENCY,
+        int_range=(1, 32),
+    ),
 )
 
 
@@ -46,6 +60,8 @@ class FileConfig:
     base_url: str | None = None
     model: str | None = None
     batch_size: int | None = None
+    batch_chars: int | None = None
+    concurrency: int | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +71,8 @@ class ResolvedSettings:
     model: str
     batch_size: int
     sources: dict[str, str]  # field -> where it came from
+    batch_chars: int = DEFAULT_BATCH_CHARS
+    concurrency: int = DEFAULT_CONCURRENCY
 
 
 def user_config_path() -> Path:
@@ -140,6 +158,7 @@ def resolve_settings(
     cli_base_url: str | None = None,
     cli_model: str | None = None,
     cli_batch_size: int | None = None,
+    cli_concurrency: int | None = None,
     cwd: Path | None = None,
     environ: dict[str, str] | None = None,
 ) -> ResolvedSettings:
@@ -155,6 +174,7 @@ def resolve_settings(
         "base_url": cli_base_url,
         "model": cli_model,
         "batch_size": cli_batch_size,
+        "concurrency": cli_concurrency,
     }
 
     sources: dict[str, str] = {}
@@ -188,8 +208,12 @@ def resolve_settings(
 
     model = resolved["model"]
     batch_size = resolved["batch_size"]
+    batch_chars = resolved["batch_chars"]
+    concurrency = resolved["concurrency"]
     assert isinstance(model, str)
     assert isinstance(batch_size, int)
+    assert isinstance(batch_chars, int)
+    assert isinstance(concurrency, int)
     api_key = resolved["api_key"]
     base_url = resolved["base_url"]
     return ResolvedSettings(
@@ -198,6 +222,8 @@ def resolve_settings(
         model=model,
         batch_size=batch_size,
         sources=sources,
+        batch_chars=batch_chars,
+        concurrency=concurrency,
     )
 
 
@@ -213,7 +239,9 @@ CONFIG_TEMPLATE = """\
 api_key = "sk-..."
 # base_url = "https://api.deepseek.com/v1"
 # model = "deepseek-flash"
-# batch_size = 8
+# batch_size = 40      # max paragraphs per API call
+# batch_chars = 3000   # target English characters per API call
+# concurrency = 8      # API calls in flight; lower it if the gateway rate-limits (429)
 """
 
 

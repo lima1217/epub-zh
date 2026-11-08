@@ -54,7 +54,8 @@ Example config.toml:
 api_key = "sk-..."
 base_url = "https://api.deepseek.com/v1"
 model = "deepseek-flash"
-batch_size = 8
+batch_size = 40     # max paragraphs per API call
+concurrency = 8     # API calls in flight; lower it if your gateway returns 429
 ```
 
 ## Web UI (drag & drop)
@@ -63,7 +64,7 @@ batch_size = 8
 epub-zh serve
 ```
 
-Opens `http://127.0.0.1:8765/` in your browser. Drag one or more EPUB files onto the page, pick **仅中文** or **中英对照**, and click **保存到本地** when a book finishes. API key / base URL / model can be set from the page's **设置** dialog (writes the same `~/.config/epub-zh/config.toml` the CLI uses).
+Opens `http://127.0.0.1:8765/` in your browser. Drag one or more EPUB files onto the page, pick **仅中文** or **中英对照** (optionally **跳过参考文献和索引**), and click **保存到本地** when a book finishes. API key / base URL / model can be set from the page's **设置** dialog (writes the same `~/.config/epub-zh/config.toml` the CLI uses).
 
 - The server listens on 127.0.0.1 only. Keep its terminal open while books translate; closing the browser tab does not stop a job.
 - Uploads and results live in `~/.local/share/epub-zh/jobs/` (`--jobs-dir` to change). After a restart, unfinished jobs show **继续** and resume where they stopped.
@@ -78,7 +79,10 @@ epub-zh translate book.epub -o book_zh.epub --mode zh
 # Bilingual (English block, then Chinese block)
 epub-zh translate book.epub -o book_bi.epub --mode bilingual
 
-# Parse only — count blocks; no API, no state dir, no output
+# Leave bibliography and index in English (faster)
+epub-zh translate book.epub -o book_zh.epub --skip-refs
+
+# Parse only — count blocks, estimate API calls; no API, no state dir, no output
 epub-zh translate book.epub --dry-run
 
 # Resume after interrupt / API failure
@@ -86,6 +90,8 @@ epub-zh resume .epub-zh-state/book_zh/state.json
 ```
 
 Progress is stored under `.epub-zh-state/<output-stem>/` next to the output file (not created for `--dry-run`).
+
+Speed: paragraphs are de-duplicated, numbers / URLs / already-Chinese text are skipped, the rest is packed into requests of about 3000 characters, and 8 requests run at once (`concurrency`, `-j`). A finished file is saved as soon as its requests return, so *resume* restarts only unfinished files.
 
 API calls retry on rate limits, timeouts, 5xx, and unparseable model output (exponential backoff, up to 6 attempts).
 

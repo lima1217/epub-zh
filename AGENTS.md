@@ -63,7 +63,8 @@ Edit the file (agent: open the path from `config path`; user fills secrets — d
 api_key = "sk-..."
 base_url = "https://api.deepseek.com/v1"   # optional; built-in default is DeepSeek official
 model = "deepseek-flash"                   # optional
-batch_size = 8                             # optional, 1..40
+batch_size = 40                            # optional, max blocks per API call, 1..40
+concurrency = 8                            # optional, API calls in flight, 1..32
 ```
 
 Any OpenAI-compatible gateway works (`base_url` + that vendor’s `api_key` / `model`). Change non-secret fields with `epub-zh config set <name> <value>`.
@@ -90,13 +91,13 @@ epub-zh config init --local   # → ./.epub-zh.toml
 2. Environment (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`)
 3. `./.epub-zh.toml`
 4. `~/.config/epub-zh/config.toml` (or `$XDG_CONFIG_HOME/epub-zh/config.toml`)
-5. Defaults (`base_url=https://api.deepseek.com/v1`, `model=deepseek-flash`, `batch_size=8`)
+5. Defaults (`base_url=https://api.deepseek.com/v1`, `model=deepseek-flash`, `batch_size=40`, `batch_chars=3000`, `concurrency=8`)
 
 Built-in defaults point at **DeepSeek official** (OpenAI-compatible). Set `base_url`/`model` to switch to any other OpenAI-compatible gateway.
 
 ### Resume and keys
 
-`epub-zh resume` reloads `model` / `base_url` / `batch_size` from `state.json`. The API key is **never** stored in state — resolve it again via config / env / `--api-key`.
+`epub-zh resume` reloads `model` / `base_url` / `batch_size` / `batch_chars` / `skip_refs` from `state.json`; `concurrency` comes from config / `--concurrency`. The API key is **never** stored in state — resolve it again via config / env / `--api-key`.
 
 ### Secrets
 
@@ -123,6 +124,7 @@ python -m pytest -q          # from repo with dev deps
 | `src/epub_zh/server.py` | `epub-zh serve`: stdlib HTTP server, job queue |
 | `src/epub_zh/web/index.html` | Drag-and-drop page served by `serve` |
 | `src/epub_zh/translate.py` | XHTML blocks + LLM batch + retries |
+| `src/epub_zh/backmatter.py` | Bibliography / index detection for `--skip-refs` |
 | `src/epub_zh/epub_io.py` | Unpack/pack EPUB, state, zip-slip guards |
 | `tests/` | Unit tests |
 

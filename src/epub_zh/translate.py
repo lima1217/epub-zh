@@ -205,6 +205,34 @@ def collect_blocks(root: etree._Element) -> list[BlockUnit]:
     return units
 
 
+_LATIN_RE = re.compile(r"[A-Za-z]")
+_URLISH_RE = re.compile(r"^(?:(?:https?://|www\.)\S+|[\w.+-]+@[\w-]+\.[\w.-]+)$", re.IGNORECASE)
+
+
+def needs_translation(text: str) -> bool:
+    """False for blocks an LLM call can't improve: no Latin letters, or a bare URL / email."""
+    t = text.strip()
+    return bool(_LATIN_RE.search(t)) and not _URLISH_RE.match(t)
+
+
+def make_batches(texts: list[str], *, max_chars: int, max_items: int) -> list[list[int]]:
+    """Greedy split of ``texts`` (by index, order kept) into batches of at most
+    ``max_items`` texts and about ``max_chars`` characters. A single text longer
+    than ``max_chars`` gets a batch of its own."""
+    batches: list[list[int]] = []
+    current: list[int] = []
+    size = 0
+    for i, text in enumerate(texts):
+        if current and (len(current) >= max_items or size + len(text) > max_chars):
+            batches.append(current)
+            current, size = [], 0
+        current.append(i)
+        size += len(text)
+    if current:
+        batches.append(current)
+    return batches
+
+
 def _set_own_element_text(el: etree._Element, text: str) -> None:
     """Replace own/inline label text; keep nested block/container subtrees.
 
