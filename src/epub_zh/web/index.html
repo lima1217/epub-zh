@@ -49,15 +49,15 @@
   #drop .big { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
   #drop .hint { color: var(--muted); font-size: 13px; }
 
-  .modes { display: flex; justify-content: center; gap: 0; margin: 18px 0 30px; }
-  .modes label {
-    border: 1px solid var(--line); padding: 6px 18px; cursor: pointer; background: var(--card); user-select: none;
+  #drop { margin-bottom: 30px; }
+  .pick-files { font-size: 13px; color: var(--muted); margin: -6px 0 16px; max-height: 6.5em; overflow: auto; word-break: break-all; }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .choice {
+    text-align: left; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 4px;
   }
-  .modes label:first-child { border-radius: 9px 0 0 9px; }
-  .modes label:last-child { border-radius: 0 9px 9px 0; border-left: none; }
-  .modes input { display: none; }
-  .modes input:checked + span { color: var(--accent); font-weight: 600; }
-
+  .choice:hover, .choice:focus-visible { border-color: var(--accent); background: var(--accent-soft); outline: none; }
+  .choice b { font-size: 16px; }
+  .choice span { font-size: 12px; color: var(--muted); }
   h2 { font-size: 15px; color: var(--muted); font-weight: 500; margin: 0 0 10px; }
   .empty { color: var(--muted); text-align: center; padding: 24px; }
   .job {
@@ -116,14 +116,19 @@
     <input type="file" id="file" accept=".epub,application/epub+zip" multiple hidden>
   </div>
 
-  <div class="modes">
-    <label><input type="radio" name="mode" value="zh" checked><span>仅中文</span></label>
-    <label><input type="radio" name="mode" value="bilingual"><span>中英对照</span></label>
-  </div>
-
   <h2>任务</h2>
   <div id="jobs"><div class="empty">还没有任务</div></div>
 </main>
+
+<dialog id="modePick">
+  <h3>翻译成哪种格式？</h3>
+  <div class="pick-files" id="pickFiles"></div>
+  <div class="choices">
+    <button class="choice" data-mode="zh"><b>仅中文</b><span>正文替换为中文译文</span></button>
+    <button class="choice" data-mode="bilingual"><b>中英对照</b><span>每段英文后跟一段中文</span></button>
+  </div>
+  <div class="row"><button id="pickCancel">取消</button></div>
+</dialog>
 
 <dialog id="settings">
   <form method="dialog" id="settingsForm">
@@ -184,11 +189,34 @@ window.addEventListener("drop", (e) => {
   upload([...e.dataTransfer.files]);
 });
 
+// Ask zh / bilingual for each drop; resolves to the mode, or null if cancelled.
+function pickMode(files) {
+  const dlg = $("#modePick");
+  $("#pickFiles").textContent = files.length === 1 ? files[0].name : `${files.length} 本：` + files.map((f) => f.name).join("、");
+  const last = localStorage.getItem("epub-zh-mode") || "zh";
+  return new Promise((resolve) => {
+    const done = (mode) => {
+      dlg.removeEventListener("close", onClose);
+      if (dlg.open) dlg.close();
+      resolve(mode);
+    };
+    const onClose = () => done(null); // Esc
+    dlg.addEventListener("close", onClose);
+    dlg.querySelectorAll(".choice").forEach((b) => (b.onclick = () => done(b.dataset.mode)));
+    $("#pickCancel").onclick = () => done(null);
+    dlg.showModal();
+    dlg.querySelector(`.choice[data-mode="${last}"]`).focus();
+  });
+}
+
 async function upload(files) {
   const epubs = files.filter((f) => f.name.toLowerCase().endsWith(".epub"));
-  if (files.length && !epubs.length) return toast("只支持 .epub 文件");
+  if (!epubs.length) return files.length && toast("只支持 .epub 文件");
+  if ($("#modePick").open) return toast("请先为上一批文件选择翻译格式");
+  const mode = await pickMode(epubs);
+  if (!mode) return;
+  localStorage.setItem("epub-zh-mode", mode);
   if (settings && !settings.has_key) openSettings();
-  const mode = document.querySelector("input[name=mode]:checked").value;
   for (const f of epubs) {
     try {
       const qs = new URLSearchParams({ mode, filename: f.name });
