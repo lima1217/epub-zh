@@ -4,129 +4,81 @@ Instructions for coding agents working in this repository or driving the `epub-z
 
 ## What this project is
 
-CLI that translates an English EPUB to Simplified Chinese (or bilingual) via an OpenAI-compatible LLM API. Package: `epub-zh`. Entrypoint: `epub_zh.cli:app`.
+Translates an English EPUB to Simplified Chinese (`zh`) or English/Chinese (`bilingual`) via an OpenAI-compatible LLM API. Package `epub-zh`, entrypoint `epub_zh.cli:app`. Two front ends over one pipeline: the CLI (`translate`, `resume`, `status`, `config`) and a local web page (`serve`). Human-facing overview: [`README.md`](README.md).
 
-Drive translation through the CLI.
+## Driving translations
 
-## Agent skill
+*pipeline* / *dry-run* / *resume* / *serve* / *config*: [`.agents/skills/epub-zh-translate/SKILL.md`](.agents/skills/epub-zh-translate/SKILL.md). Flags, config fields, state, *host terminal* launch, failure recovery: [`cli-reference.md`](.agents/skills/epub-zh-translate/cli-reference.md).
 
-*pipeline* / *dry-run* / *resume* / *config*: [`.agents/skills/epub-zh-translate/SKILL.md`](.agents/skills/epub-zh-translate/SKILL.md). Flags, state, *host terminal* launch: [`cli-reference.md`](.agents/skills/epub-zh-translate/cli-reference.md).
-
-*pipeline*, *resume*, and `serve` (web UI) run in a *host terminal* (OS Terminal / iTerm). Short checks (`version`, `config`, `--dry-run`) may use the agent shell.
+*pipeline*, *resume*, and *serve* are long-running: run them in a *host terminal* (OS Terminal / iTerm), where they outlive the agent's turn. Short checks (`version`, `config *`, `status`, `--dry-run`) may use the agent shell.
 
 ## Install so `epub-zh` is on PATH
 
 `command not found: epub-zh` means the package is not on the current shell `PATH`. Fix before any config or translate step.
 
-### Option A — project venv (dev)
+**Project venv (development):**
 
 ```bash
-cd <repo>
 uv venv --python 3.11 .venv
 source .venv/bin/activate
-uv pip install -e ".[dev]"   # or: uv pip install -e .
+uv pip install -e ".[dev]"
 epub-zh version
 ```
 
-The venv must stay activated in that shell. Leaving the repo directory is fine; deactivating is not.
+The venv works only while activated in that shell.
 
-### Option B — user tool install (any directory)
+**User tool install (any directory, any terminal):**
 
 ```bash
-uv tool install -e <repo>
-# ensure ~/.local/bin is on PATH (uv usually handles this)
+uv tool install <repo>              # copies the code into ~/.local/bin/epub-zh
+uv tool install --reinstall <repo>  # after repo changes
 which epub-zh && epub-zh version
 ```
 
-If `which` is empty after install:
+`uv tool install -e <repo>` (editable) picks up repo changes without reinstalling, but reads the repo at runtime: with the repo under `~/Desktop`, `~/Documents`, or `~/Downloads`, macOS privacy rules can make it fail in Terminal.app. Use the copying install for *host terminal* runs. If `which` is empty, `export PATH="$HOME/.local/bin:$PATH"` (persist it in the shell rc only if the user asks).
+
+## LLM API configuration
+
+Keys live in a config file the user edits, never in chat:
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
+epub-zh config init      # once → ~/.config/epub-zh/config.toml
+epub-zh config path      # give the user this path to set api_key
+epub-zh config show      # api_key redacted; source column per field
+epub-zh config check     # OK = key authenticates and model is served
 ```
 
-Persist that line in the user’s shell rc only if they ask.
+Built-in default: DeepSeek official, `base_url = "https://api.deepseek.com/v1"`, `model = "deepseek-flash"`. Change non-secret fields with `epub-zh config set <name> <value>`. Fields, ranges, precedence: [`cli-reference.md`](.agents/skills/epub-zh-translate/cli-reference.md) § LLM API configuration.
 
-## LLM API configuration (persistent)
+The API key is never stored in `state.json`; *resume* resolves it again from config / env / `--api-key`.
 
-Preferred path for open-source / multi-session use: **config file**, not pasting keys into chat or one-off `export`.
-
-### One-time setup
-
-```bash
-epub-zh config init
-epub-zh config path          # usually ~/.config/epub-zh/config.toml
-```
-
-Edit the file (agent: open the path from `config path`; user fills secrets — do not echo full keys back in chat):
-
-```toml
-api_key = "sk-..."
-base_url = "https://api.deepseek.com/v1"   # optional; built-in default is DeepSeek official
-model = "deepseek-flash"                   # optional
-batch_size = 40                            # optional, max blocks per API call, 1..40
-concurrency = 8                            # optional, API calls in flight, 1..32
-```
-
-Any OpenAI-compatible gateway works (`base_url` + that vendor’s `api_key` / `model`). Change non-secret fields with `epub-zh config set <name> <value>`.
-
-Verify without printing the raw key:
-
-```bash
-epub-zh config show
-```
-
-`api_key` appears redacted; `sources` column shows `cli` / `env:…` / config path / `default`.
-
-### Project-local override (optional)
-
-```bash
-epub-zh config init --local   # → ./.epub-zh.toml
-```
-
-`.epub-zh.toml` is gitignored. Use for per-repo model/base_url; prefer user config for the key when possible.
-
-### Precedence (high → low)
-
-1. CLI flags (`--api-key`, `--base-url`, `--model`, `--batch-size`)
-2. Environment (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`)
-3. `./.epub-zh.toml`
-4. `~/.config/epub-zh/config.toml` (or `$XDG_CONFIG_HOME/epub-zh/config.toml`)
-5. Defaults (`base_url=https://api.deepseek.com/v1`, `model=deepseek-flash`, `batch_size=40`, `batch_chars=3000`, `concurrency=8`)
-
-Built-in defaults point at **DeepSeek official** (OpenAI-compatible). Set `base_url`/`model` to switch to any other OpenAI-compatible gateway.
-
-### Resume and keys
-
-`epub-zh resume` reloads `model` / `base_url` / `batch_size` / `batch_chars` / `skip_refs` from `state.json`; `concurrency` comes from config / `--concurrency`. The API key is **never** stored in state — resolve it again via config / env / `--api-key`.
-
-### Secrets
-
-- Do not commit `config.toml`, `.epub-zh.toml`, or keys.
-- Do not paste full API keys into PR descriptions, issues, or agent transcripts.
-- Prefer `epub-zh config init` + user edit over asking the user to `export` in every session.
+Secrets: keep `config.toml`, `.epub-zh.toml`, and keys out of commits, PR/issue text, and transcripts; print keys only redacted.
 
 ## Verification
 
 ```bash
-epub-zh version
-epub-zh config check          # key works + model is served
-epub-zh translate <book.epub> --dry-run
-python -m pytest -q          # from repo with dev deps
+python -m pytest -q                        # from the activated dev venv
+epub-zh translate <book.epub> --dry-run    # parse-only, no API
+epub-zh config check                       # live key check
 ```
+
+Real translation spends the user's API credits. To exercise the pipeline or web page, monkeypatch `epub_zh.pipeline.Translator` with a fake (as `tests/` does); use the real API only for a deliberate, small check.
+
+`tests/test_docs_defaults.py` requires `README.md`, `AGENTS.md`, and `cli-reference.md` to name the current default model and base URL: update all three when `config.py` defaults change.
+
+`serve` reads `web/index.html` on every request, so page edits show on reload; Python changes need a server restart.
 
 ## Layout
 
 | Path | Role |
 |------|------|
 | `src/epub_zh/cli.py` | Typer CLI |
-| `src/epub_zh/config.py` | Config load / precedence |
-| `src/epub_zh/pipeline.py` | Translate / dry-run / resume orchestration |
-| `src/epub_zh/server.py` | `epub-zh serve`: stdlib HTTP server, job queue |
-| `src/epub_zh/web/index.html` | Drag-and-drop page served by `serve` |
-| `src/epub_zh/translate.py` | XHTML blocks + LLM batch + retries |
+| `src/epub_zh/config.py` | Config fields, load, precedence (single source for settings) |
+| `src/epub_zh/pipeline.py` | Translate / dry-run / resume: parse all docs, skip + dedupe blocks, batch by chars, concurrent API calls, per-doc completion |
+| `src/epub_zh/translate.py` | XHTML blocks, apply translations, prompt, LLM batch + retries |
 | `src/epub_zh/backmatter.py` | Bibliography / index detection for `--skip-refs` |
 | `src/epub_zh/metadata.py` | Translated title, identifier suffix, language in OPF / NCX |
-| `src/epub_zh/epub_io.py` | Unpack/pack EPUB, state, zip-slip guards |
-| `tests/` | Unit tests |
-
-Human-oriented short README: [`README.md`](README.md).
+| `src/epub_zh/epub_io.py` | Unpack/pack EPUB, `JobState`, zip-slip guards |
+| `src/epub_zh/server.py` | `epub-zh serve`: stdlib HTTP server, job queue, Host/Origin checks |
+| `src/epub_zh/web/index.html` | Drag-and-drop page served by `serve` |
+| `tests/` | Unit tests (fake translator, no network) |

@@ -1,103 +1,143 @@
 # epub-zh
 
-CLI that translates an English EPUB into Simplified Chinese (or bilingual) using an OpenAI-compatible LLM API.
+[![test](https://github.com/lima1217/epub-zh/actions/workflows/test.yml/badge.svg)](https://github.com/lima1217/epub-zh/actions/workflows/test.yml)
 
-Agent-oriented setup (install PATH, persistent LLM config, translate workflow): see [`AGENTS.md`](AGENTS.md).
+Translate English EPUB books into Simplified Chinese — Chinese only or English/Chinese side by side — with any OpenAI-compatible LLM API. Use it from a drag-and-drop web page or the command line.
+
+把英文 EPUB 电子书译成简体中文（仅中文或中英对照）。拖进网页即可翻译，也可以用命令行。
+
+- **Drag and drop**: `epub-zh serve` opens a local page; drop books in, pick 仅中文 / 中英对照, save the result.
+- **Fast**: requests run concurrently. With DeepSeek at `concurrency = 32`, a ~400-page book translates in roughly 2–3 minutes.
+- **Resumable**: progress is saved per chapter file; after a failure or restart, only unfinished files are translated again.
+- **Easy to tell apart**: the translated copy gets a Chinese title (e.g. 梦境机器) and its own identifier, so reading apps list it separately from the original.
+- **Any OpenAI-compatible API**: DeepSeek official is the default; point `base_url` / `model` at any other gateway.
+- **Optional**: leave the bibliography and index in English (`--skip-refs`), which saves requests.
+
+## Requirements
+
+- Python 3.11+ and [uv](https://docs.astral.sh/uv/)
+- An API key for an OpenAI-compatible LLM (DeepSeek by default)
+- DRM-free, text-based EPUB (not scanned images)
 
 ## Install
 
-**Dev (venv):**
-
 ```bash
-cd epub-zh
-uv venv --python 3.11 .venv
-source .venv/bin/activate
-uv pip install -e .
+git clone https://github.com/lima1217/epub-zh.git
+uv tool install ./epub-zh        # puts `epub-zh` on PATH (~/.local/bin)
+epub-zh version
 ```
 
-**Anywhere on your machine** (puts `epub-zh` on PATH via `~/.local/bin`):
+After `git pull`, run `uv tool install --reinstall ./epub-zh` to pick up changes. For development, see [Development](#development).
+
+## Quick start
 
 ```bash
-uv tool install -e /path/to/epub-zh
+epub-zh config init      # creates ~/.config/epub-zh/config.toml
+# open that file and set api_key = "sk-..."
+epub-zh config check     # OK = key works and the model is served
+epub-zh serve            # opens http://127.0.0.1:8765/
 ```
 
-If you see `command not found: epub-zh`, the shell is not using the venv and the tool is not on `PATH` — use one of the installs above, then `epub-zh version`.
+## Web page
 
-## Config
+`epub-zh serve` starts a local server and opens the page in your browser.
 
-Persistent settings (recommended):
+1. Drag one or more EPUB files onto the page (or click to choose).
+2. Choose **仅中文** or **中英对照**; optionally tick **跳过参考文献和索引**.
+3. Watch progress; click **保存到本地** when a book is done. The file is named after the Chinese title, e.g. `梦境机器.epub`.
+
+- **设置** (top right) edits API key, base URL, model, and concurrency — the same `config.toml` the CLI uses. The key is never shown back in full.
+- The page is a window onto the server: closing the tab does not stop a job. Stop the server with Ctrl+C in its terminal.
+- Jobs live in `~/.local/share/epub-zh/jobs/` (`--jobs-dir` to change). A job interrupted by a server restart shows **继续** and resumes where it stopped.
+- Books translate one at a time, in the order you add them. Options: `--port`, `--no-open`.
+- The server listens on 127.0.0.1 only and rejects requests from other sites.
+
+## Command line
 
 ```bash
-epub-zh config init          # writes ~/.config/epub-zh/config.toml
-# edit api_key / base_url / model in that file
-epub-zh config show          # resolved values + source
+# Chinese only (default mode)
+epub-zh translate book.epub -o book_zh.epub
+
+# English paragraph followed by its Chinese translation
+epub-zh translate book.epub -o book_bi.epub --mode bilingual
+
+# Leave bibliography and index in English
+epub-zh translate book.epub -o book_zh.epub --skip-refs
+
+# Preview: per-file block counts, bibliography/index files, estimated API calls.
+# No API calls, nothing written.
+epub-zh translate book.epub --dry-run
+
+# Continue after a failure or interruption
+epub-zh resume .epub-zh-state/book_zh/state.json
+
+# One-line progress of a running job: running / complete / failed
+epub-zh status .epub-zh-state/book_zh/state.json
 ```
 
-Optional project override in the current directory: `epub-zh config init --local` → `.epub-zh.toml`.
+Progress is kept in `.epub-zh-state/<output-name>/` next to the output file. The source EPUB is never modified.
 
-**Precedence:** CLI flags > environment variables > `.epub-zh.toml` > `~/.config/epub-zh/config.toml` > defaults.
+## Configuration
 
-**Built-in default gateway is DeepSeek official** (OpenAI-compatible): `base_url=https://api.deepseek.com/v1`, `model=deepseek-flash`. Any OpenAI-compatible gateway works — just set `base_url`/`model` to your vendor's.
-
-Environment variables still work:
-
-```bash
-export OPENAI_API_KEY=sk-...
-# optional (DeepSeek default already points here)
-export OPENAI_BASE_URL=https://api.deepseek.com/v1
-export OPENAI_MODEL=deepseek-flash
-```
-
-Example config.toml:
+`epub-zh config init` writes `~/.config/epub-zh/config.toml`:
 
 ```toml
 api_key = "sk-..."
-base_url = "https://api.deepseek.com/v1"
-model = "deepseek-flash"
-batch_size = 40     # max paragraphs per API call
-concurrency = 8     # API calls in flight; lower it if your gateway returns 429
+base_url = "https://api.deepseek.com/v1"   # default: DeepSeek official
+model = "deepseek-flash"                   # default
+concurrency = 8                            # API calls in flight, 1–32
+batch_size = 40                            # max paragraphs per API call, 1–40
+batch_chars = 3000                         # target characters per API call
 ```
 
-## Web UI (drag & drop)
+| Command | Does |
+|---------|------|
+| `epub-zh config show` | Resolved values and where each came from (key redacted) |
+| `epub-zh config set <name> <value>` | Change one field, keeping the rest of the file |
+| `epub-zh config check` | Verify the key and that `model` is served |
+| `epub-zh config init --local` | Per-directory override in `./.epub-zh.toml` |
+
+**Precedence:** CLI flags > environment (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`) > `./.epub-zh.toml` > `~/.config/epub-zh/config.toml` > defaults.
+
+To use another provider, set its `base_url`, `api_key`, and `model`; any OpenAI-compatible chat completions API works.
+
+### Speed
+
+Time is almost all spent waiting for the model, so `concurrency` is the main knob. Measured with DeepSeek on two chapters (260K characters, 102 requests):
+
+| concurrency | time |
+|-------------|------|
+| one at a time (old behaviour) | ~8 min, estimated from the old rate |
+| 8 (default) | 60 s |
+| 32 | 23 s |
+| 64 | 29 s — each request slowed from ~5 s to ~10 s |
+
+For DeepSeek, `epub-zh config set concurrency 32`. If your provider returns 429 (rate limited), lower it. Before calling the API, epub-zh skips paragraphs with no English letters, URLs, and exact duplicates, and packs short paragraphs (such as index entries) together.
+
+## How it works
+
+1. Unpack the EPUB and collect text blocks (paragraphs, headings, list items) from each chapter file in reading order.
+2. Send blocks to the model in numbered batches, several batches at once; malformed replies are retried (up to 6 attempts with backoff), and a batch the model keeps mis-numbering is split in half.
+3. Write each chapter file as soon as all its batches are back, and record it in `state.json`.
+4. Set the Chinese title, a `-zh` identifier suffix, and `zh-CN` language (Chinese-only mode); repack as a new EPUB.
+
+Notes:
+
+- Foreign personal names and proper nouns stay in English inside the Chinese text.
+- In Chinese-only mode, inline formatting inside a translated paragraph (italics, links) is replaced by plain text.
+- The book title is the model's translation and may differ from an official Chinese edition's title.
+
+## Development
 
 ```bash
-epub-zh serve
+uv venv --python 3.11 .venv
+source .venv/bin/activate
+uv pip install -e ".[dev]"
+python -m pytest -q
 ```
 
-Opens `http://127.0.0.1:8765/` in your browser. Drag one or more EPUB files onto the page, pick **仅中文** or **中英对照** (optionally **跳过参考文献和索引**), and click **保存到本地** when a book finishes. API key / base URL / model can be set from the page's **设置** dialog (writes the same `~/.config/epub-zh/config.toml` the CLI uses).
+CI runs the tests on every push to `main`. Notes for coding agents: [`AGENTS.md`](AGENTS.md).
 
-- The server listens on 127.0.0.1 only. Keep its terminal open while books translate; closing the browser tab does not stop a job.
-- Uploads and results live in `~/.local/share/epub-zh/jobs/` (`--jobs-dir` to change). After a restart, unfinished jobs show **继续** and resume where they stopped.
-- Books translate one at a time, in upload order. `--port` picks another port; `--no-open` skips opening the browser.
+## License
 
-## Usage
-
-```bash
-# Chinese only
-epub-zh translate book.epub -o book_zh.epub --mode zh
-
-# Bilingual (English block, then Chinese block)
-epub-zh translate book.epub -o book_bi.epub --mode bilingual
-
-# Leave bibliography and index in English (faster)
-epub-zh translate book.epub -o book_zh.epub --skip-refs
-
-# Parse only — count blocks, estimate API calls; no API, no state dir, no output
-epub-zh translate book.epub --dry-run
-
-# Resume after interrupt / API failure
-epub-zh resume .epub-zh-state/book_zh/state.json
-```
-
-Progress is stored under `.epub-zh-state/<output-stem>/` next to the output file (not created for `--dry-run`).
-
-Speed: paragraphs are de-duplicated, numbers / URLs / already-Chinese text are skipped, the rest is packed into requests of about 3000 characters, and 8 requests run at once (`concurrency`, `-j`). A finished file is saved as soon as its requests return, so *resume* restarts only unfinished files.
-
-API calls retry on rate limits, timeouts, 5xx, and unparseable model output (exponential backoff, up to 6 attempts).
-
-## Notes
-
-- The translated book gets its own title (`梦想机器`, or `梦想机器（中英对照）` in bilingual mode; `原名（中文版）` if the model keeps the title in English) and its own identifier, so reading apps list it separately from the original. The web page saves it under that title.
-- Input must be DRM-free, text-based EPUB (not scanned images).
-- Original file is never modified; only a new EPUB is written.
-- Inline markup inside a block is flattened to plain text on replace (zh mode) for reliability.
+MIT — see [LICENSE](LICENSE).

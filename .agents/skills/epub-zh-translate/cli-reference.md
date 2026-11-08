@@ -4,11 +4,11 @@ Disclosed reference for [epub-zh-translate](SKILL.md). Load on flag choice, API 
 
 ## Host terminal
 
-*pipeline* and *resume* run in a *host terminal* (macOS Terminal.app, iTerm). Short commands (`version`, `config *`, `translate --dry-run`) may use the agent shell.
+*pipeline*, *resume*, and *serve* run in a *host terminal* (macOS Terminal.app, iTerm). Short commands (`version`, `config *`, `status`, `translate --dry-run`) may use the agent shell.
 
 ### Binary
 
-A fresh Terminal window has no venv activated and macOS privacy (TCC) may block it from `~/Desktop`, `~/Documents`, `~/Downloads`. Launch the user-tool install by absolute path: `uv tool install <repo>` (no `-e`, so it copies the code and never reads the repo at runtime) → `~/.local/bin/epub-zh`. Re-run `uv tool install --reinstall <repo>` after repo changes.
+A fresh Terminal window has no venv activated and macOS privacy (TCC) may block it from `~/Desktop`, `~/Documents`, `~/Downloads`. Launch the user-tool install by absolute path: `uv tool install <repo>` (no `-e`, so it copies the code and never reads the repo at runtime) → `~/.local/bin/epub-zh`. Re-run `uv tool install --reinstall <repo>` after repo changes. Editable or copy: `grep editable ~/.local/share/uv/tools/epub-zh/uv-receipt.toml` prints the repo path only for an editable install.
 
 ### Preflight (macOS)
 
@@ -34,7 +34,7 @@ chmod +x /tmp/epubzh-run.sh
 osascript -e 'tell application "Terminal" to do script "/tmp/epubzh-run.sh"'
 ```
 
-*resume*: same script with `~/.local/bin/epub-zh resume "/path/to/.epub-zh-state/book_bilingual/state.json"`.
+*resume*: same script with `~/.local/bin/epub-zh resume "/path/to/.epub-zh-state/book_bilingual/state.json"`. *serve*: same script with `~/.local/bin/epub-zh serve --no-open`.
 
 Fallback: paste the exact command for the user to run in their system terminal.
 
@@ -78,6 +78,8 @@ batch_size = 40                          # optional, max blocks per API call, 1.
 batch_chars = 3000                       # optional, target source chars per API call, 200..20000
 concurrency = 8                          # optional, API calls in flight, 1..32 (lower on 429s)
 ```
+
+`concurrency` is the speed knob. Measured on DeepSeek official: 8 → 60 s, 32 → 23 s, 64 → 29 s for the same 102 calls (past ~32, each call slows from ~5 s to ~10 s). Recommend `epub-zh config set concurrency 32` for DeepSeek; other gateways may rate-limit (429) sooner.
 
 OpenAI-compatible providers: that vendor’s `base_url`, `api_key`, and `model`. Built-in defaults point at **DeepSeek official** (`base_url=https://api.deepseek.com/v1`, `model=deepseek-flash`).
 
@@ -126,7 +128,9 @@ Reloads `source`, `output`, `mode`, `model`, `base_url`, `batch_size`, `batch_ch
 
 ### `epub-zh serve`
 
-Local drag-and-drop web page for humans (`--port 8765`, `--jobs-dir`, `--open/--no-open`). Long-running like `translate`: launch it in a *host terminal*, not the agent shell. Binds 127.0.0.1; jobs persist under `~/.local/share/epub-zh/jobs/<id>/` (`meta.json`, `source.epub`, `output.epub`, `.epub-zh-state/output/state.json`), so `epub-zh status` works on a web job's `state.json` too.
+Local drag-and-drop web page for humans (`--port 8765`, next free port if taken; `--jobs-dir`; `--open/--no-open`). Long-running like `translate`: launch it in a *host terminal*, not the agent shell. Binds 127.0.0.1 and rejects foreign `Host` / `Origin`. One worker runs jobs in upload order. Jobs persist under `~/.local/share/epub-zh/jobs/<id>/` (`meta.json`, `source.epub`, `output.epub`, `.epub-zh-state/output/state.json`), so `epub-zh status` works on a web job's `state.json` too.
+
+JSON API (same origin): `GET /api/jobs` (status, percent, `download_name`), `GET /api/jobs/<id>/download`. Stop: SIGINT (Ctrl+C) once no job is `running`; an interrupted job shows **继续** after restart.
 
 ### `epub-zh version`
 
@@ -142,7 +146,7 @@ For output `/path/to/book_zh.epub`:
   work-<hash>/          # unpacked EPUB working tree
 ```
 
-Fields that matter: `completed_docs` (list of doc paths), `total_docs`, `failed_doc`, `error`, `workdir`, `output`, `mode`.
+Fields that matter: `completed_docs` (list of doc paths), `total_docs`, `failed_doc`, `error`, `workdir`, `output`, `mode`, `skip_refs`, `output_title` (title written into the output). Docs finish out of spine order; each is recorded as soon as its batches return, so a failure keeps every doc already finished.
 
 *dry-run* never creates this tree.
 
@@ -150,7 +154,7 @@ Fields that matter: `completed_docs` (list of doc paths), `total_docs`, `failed_
 
 1. Read `failed_doc` / `error` from `state.json`.
 2. Confirm `workdir` still exists (missing → fresh *pipeline* to the same `-o` or a new output).
-3. Fix transient cause (key, network, quota) if needed — `epub-zh config check`.
+3. Fix transient cause (key, network, quota) if needed — `epub-zh config check`. `error` mentioning 429 / rate limit → *resume* with a lower `-j`.
 4. `epub-zh resume <state.json>` — skips docs in `completed_docs`.
 
 API layer retries rate limits, timeouts, 5xx, and unparseable numbered output (up to 6 attempts with backoff) before failing the doc.
