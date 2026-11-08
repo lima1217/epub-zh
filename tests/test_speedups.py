@@ -29,7 +29,7 @@ def _epub(path: Path, docs: dict[str, list[str]], *, guide: dict[str, str] | Non
     refs = "".join(f'<reference type="{t}" href="{n}" title="{t}"/>' for t, n in (guide or {}).items())
     opf = f"""<?xml version="1.0"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uid" version="2.0">
-  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>T</dc:title><dc:identifier id="uid">id</dc:identifier></metadata>
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>测试书</dc:title><dc:identifier id="uid">id</dc:identifier></metadata>
   <manifest>{items}</manifest><spine>{spine}</spine><guide>{refs}</guide>
 </package>"""
     container = """<?xml version="1.0"?>

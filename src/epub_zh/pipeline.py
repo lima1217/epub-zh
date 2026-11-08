@@ -27,6 +27,7 @@ from epub_zh.epub_io import (
     state_dir_for,
     unpack_epub,
 )
+from epub_zh.metadata import apply_output_metadata, output_title, read_title
 from epub_zh.translate import (
     BlockUnit,
     Translator,
@@ -260,6 +261,15 @@ def _run_job(
             item.text_ids.append(text_index[u.source_text])
         work.append(item)
 
+    # The book title rides along with the body text (often a duplicate of a block).
+    original_title = read_title(workdir)
+    title_id: int | None = None
+    if state.title_zh is None and original_title and needs_translation(original_title):
+        if original_title not in text_index:
+            text_index[original_title] = len(texts)
+            texts.append(original_title)
+        title_id = text_index[original_title]
+
     batches = make_batches(texts, max_chars=state.batch_chars, max_items=state.batch_size)
     batch_of_text: dict[int, int] = {t: b for b, ids in enumerate(batches) for t in ids}
     for item in work:
@@ -344,7 +354,7 @@ def _run_job(
                 try:
                     translated = fut.result()
                 except Exception as exc:  # noqa: BLE001 — persist failure for resume
-                    key = next(item.key for item in pending if b in item.waiting)
+                    key = next((item.key for item in pending if b in item.waiting), "(book title)")
                     state.failed_doc = key
                     state.error = str(exc)
                     state.save(state_path)
@@ -352,6 +362,9 @@ def _run_job(
                     raise TranslationFailed(key, exc) from exc
                 for i, text in zip(batches[b], translated, strict=True):
                     results[i] = text
+                if title_id is not None and title_id in batches[b]:
+                    state.title_zh = results[title_id]
+                    state.save(state_path)
                 blocks_done += len(batches[b])
                 still: list[_DocWork] = []
                 for item in pending:
@@ -371,6 +384,9 @@ def _run_job(
             # On failure / cancel: drop queued batches; in-flight calls finish in the background.
             executor.shutdown(wait=False, cancel_futures=True)
 
+    state.output_title = output_title(original_title, state.title_zh, state.mode) or state.output_title
+    apply_output_metadata(workdir, title=state.output_title, mode=state.mode)
+    state.save(state_path)
     pack_epub(workdir, output)
     console.print(f"[green]Wrote[/] {output}")
     return state_path

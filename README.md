@@ -97,6 +97,7 @@ API calls retry on rate limits, timeouts, 5xx, and unparseable model output (exp
 
 ## Notes
 
+- The translated book gets its own title (`梦想机器`, or `梦想机器（中英对照）` in bilingual mode; `原名（中文版）` if the model keeps the title in English) and its own identifier, so reading apps list it separately from the original. The web page saves it under that title.
 - Input must be DRM-free, text-based EPUB (not scanned images).
 - Original file is never modified; only a new EPUB is written.
 - Inline markup inside a block is flattened to plain text on replace (zh mode) for reliability.

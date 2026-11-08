@@ -118,7 +118,7 @@ OpenAI-compatible providers: that vendor’s `base_url`, `api_key`, and `model`.
 | `--api-key` | Same as translate |
 | `-j` / `--concurrency` | Same as translate (not stored in state) |
 
-Reloads `source`, `output`, `mode`, `model`, `base_url`, `batch_size`, `batch_chars`, `skip_refs`, `workdir`, `completed_docs` from state. API key from config / env / flag only.
+Reloads `source`, `output`, `mode`, `model`, `base_url`, `batch_size`, `batch_chars`, `skip_refs`, `workdir`, `completed_docs`, `title_zh` from state. On completion the output's OPF/NCX get the translated title (`output_title` in state), a `-zh` / `-zh-bilingual` suffix on the unique identifier, and `zh-CN` language in zh mode. API key from config / env / flag only.
 
 ### `epub-zh status`
 

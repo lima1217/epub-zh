@@ -30,6 +30,7 @@ from epub_zh.config import (
     user_config_path,
 )
 from epub_zh.epub_io import JobState, state_dir_for
+from epub_zh.metadata import MODE_LABEL, safe_filename
 from epub_zh.pipeline import JobProgress, TranslationFailed, run_resume, run_translate
 from epub_zh.translate import list_models
 
@@ -56,6 +57,7 @@ class Job:
     created: float
     dir: Path
     skip_refs: bool = False
+    output_title: str | None = None  # title written into the translated book
     status: str = "queued"  # queued | running | done | failed | cancelled
     error: str | None = None
     progress: JobProgress | None = None
@@ -75,9 +77,12 @@ class Job:
 
     @property
     def download_name(self) -> str:
+        """``梦想机器.epub`` / ``梦想机器（中英对照）.epub``; before the title is known,
+        the upload's name plus ``（中文版）`` / ``（中英对照）``."""
+        if self.output_title:
+            return f"{safe_filename(self.output_title)}.epub"
         stem = self.filename[:-5] if self.filename.lower().endswith(".epub") else self.filename
-        suffix = "zh" if self.mode == "zh" else "bilingual"
-        return f"{stem}.{suffix}.epub"
+        return f"{safe_filename(stem)}（{MODE_LABEL.get(self.mode, '中文版')}）.epub"
 
     def save_meta(self) -> None:
         meta = {
@@ -145,6 +150,7 @@ class JobManager:
             if not _JOB_ID.match(job.id) or job.dir.name != job.id:
                 continue
             state = self._read_state(job)
+            job.output_title = state.output_title if state else None
             if job.output.is_file() and state and state.failed_doc is None:
                 job.status = "done"
             else:
@@ -269,7 +275,9 @@ class JobManager:
                 job.status = "cancelled" if cancelled else "failed"
                 job.error = None if cancelled else str(exc.__cause__ or exc)
             return
+        state = self._read_state(job)
         with self.lock:
+            job.output_title = state.output_title if state else None
             job.status = "done"
             job.error = None
 

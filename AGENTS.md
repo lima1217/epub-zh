@@ -125,6 +125,7 @@ python -m pytest -q          # from repo with dev deps
 | `src/epub_zh/web/index.html` | Drag-and-drop page served by `serve` |
 | `src/epub_zh/translate.py` | XHTML blocks + LLM batch + retries |
 | `src/epub_zh/backmatter.py` | Bibliography / index detection for `--skip-refs` |
+| `src/epub_zh/metadata.py` | Translated title, identifier suffix, language in OPF / NCX |
 | `src/epub_zh/epub_io.py` | Unpack/pack EPUB, state, zip-slip guards |
 | `tests/` | Unit tests |
 

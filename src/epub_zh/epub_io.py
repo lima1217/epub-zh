@@ -64,6 +64,8 @@ class JobState:
     total_docs: int | None = None  # None in state files from before this field
     batch_chars: int = 3000  # target source characters per API call
     skip_refs: bool = False  # leave bibliography / index docs untranslated
+    title_zh: str | None = None  # model's translation of dc:title
+    output_title: str | None = None  # title written into the translated EPUB
 
     def status_line(self) -> str:
         """One-line progress summary for ``epub-zh status`` / monitoring."""

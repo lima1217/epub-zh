@@ -19,15 +19,15 @@ from epub_zh.epub_io import JobState
 from epub_zh.pipeline import JobProgress, TranslationFailed, run_translate
 
 
-def _epub_bytes(paragraphs: list[str]) -> bytes:
+def _epub_bytes(paragraphs: list[str], title: str = "测试书") -> bytes:
     container = """<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
 </container>"""
-    opf = """<?xml version="1.0"?>
+    opf = f"""<?xml version="1.0"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uid" version="2.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:title>T</dc:title><dc:identifier id="uid">id</dc:identifier>
+    <dc:title>{title}</dc:title><dc:identifier id="uid">id</dc:identifier>
   </metadata>
   <manifest><item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/></manifest>
   <spine><itemref idref="c1"/></spine>
@@ -154,16 +154,19 @@ def test_index_page_served(app) -> None:
 
 def test_upload_translate_download(app) -> None:
     base, manager = app
-    job = _upload(base, _epub_bytes(["Hello there."]), name="My Book.epub", mode="bilingual", skip_refs=True)
+    job = _upload(
+        base, _epub_bytes(["Hello there."], title="Dream"), name="My Book.epub", mode="bilingual", skip_refs=True
+    )
+    assert job["download_name"] == "My Book（中英对照）.epub"  # before the title is translated
     assert job["skip_refs"] is True
     assert json.loads((manager.jobs_dir / job["id"] / "meta.json").read_text())["skip_refs"] is True
     done = _wait_status(base, job["id"], "done")
-    assert done["percent"] == 100 and done["download_name"] == "My Book.bilingual.epub"
+    assert done["percent"] == 100 and done["download_name"] == "中 Dream（中英对照）.epub"
 
     status, headers, body = _req(base, f"/api/jobs/{job['id']}/download")
     assert status == 200
     assert headers["Content-Type"] == "application/epub+zip"
-    assert "filename*=UTF-8''My%20Book.bilingual.epub" in headers["Content-Disposition"]
+    assert "filename*=UTF-8''%E4%B8%AD%20Dream%EF%BC%88" in headers["Content-Disposition"]
     with zipfile.ZipFile(io.BytesIO(body)) as zf:
         xhtml = zf.read("OEBPS/ch1.xhtml").decode()
     assert "Hello there." in xhtml and "中:Hello there." in xhtml
