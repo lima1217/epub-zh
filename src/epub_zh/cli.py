@@ -266,7 +266,7 @@ def serve_cmd(
     ),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the page in your browser"),
 ) -> None:
-    """Local web page: drag in an EPUB, translate it, save the result."""
+    """Local web page: drag in an EPUB, translate it, save the result; or fetch a Xiaoyuzhou podcast transcript."""
     import webbrowser
 
     from epub_zh.server import bind_server, default_jobs_dir

@@ -12,6 +12,7 @@ Translate English EPUB books into Simplified Chinese — Chinese only or English
 - **Easy to tell apart**: the translated copy gets a Chinese title (e.g. 梦境机器) and its own identifier, so reading apps list it separately from the original.
 - **Any OpenAI-compatible API**: DeepSeek official is the default; point `base_url` / `model` at any other gateway.
 - **Optional**: leave the bibliography and index in English (`--skip-refs`), which saves requests.
+- **Podcast transcripts**: the same page has a **播客字幕** tab that saves a Xiaoyuzhou (小宇宙) episode's official transcript as Markdown — see [Podcast transcripts](#podcast-transcripts).
 
 ## Requirements
 
@@ -51,6 +52,24 @@ epub-zh serve            # opens http://127.0.0.1:8765/
 - Jobs live in `~/.local/share/epub-zh/jobs/` (`--jobs-dir` to change). A job interrupted by a server restart shows **继续** and resumes where it stopped.
 - Books translate one at a time, in the order you add them. Options: `--port`, `--no-open`.
 - The server listens on 127.0.0.1 only and rejects requests from other sites.
+
+### Podcast transcripts
+
+The **播客字幕** tab fetches the official transcript of a Xiaoyuzhou (小宇宙) episode. It shells out to the separate [`xyz` CLI](https://github.com/lima1217/xiaoyuzhou), so it needs that tool installed and logged in; it does not use the LLM API.
+
+```bash
+uv tool install git+https://github.com/lima1217/xiaoyuzhou   # provides `xyz`
+xyz send-code <phone>            # then, with the SMS code:
+xyz login <phone> <code>
+```
+
+1. Paste an episode link (`https://www.xiaoyuzhoufm.com/episode/<id>`) and click **抓取字幕**.
+2. Preview or copy it, or download **Markdown** (paragraphs with `[mm:ss]` start times) or a timestamped **TXT**.
+
+- **设置** shows whether `xyz` was found and links to the setup instructions; the tab shows a banner when it is missing.
+- Transcripts live in `~/.local/share/epub-zh/podcasts/` (next to `jobs/`).
+- The server finds `xyz` on `PATH`, then in `~/.local/bin`; set `EPUB_ZH_XYZ=/path/to/xyz` to override.
+- Episodes without an official 文稿 report “还没有官方字幕”.
 
 ## Command line
 

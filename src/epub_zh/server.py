@@ -1,8 +1,10 @@
-"""Local web UI: drag an EPUB onto a page, translate it, save the result.
+"""Local web UI: drag an EPUB onto a page, translate it, save the result;
+or paste a Xiaoyuzhou episode link and save its transcript.
 
 Stdlib only (``http.server``). Binds to loopback; jobs live on disk under
 ``jobs_dir`` so a server restart keeps finished files and can resume
-unfinished ones. One worker thread runs jobs in upload order.
+unfinished ones. One worker thread runs jobs in upload order. Podcast
+transcripts are fetched synchronously and kept in a sibling ``podcasts`` dir.
 """
 
 from __future__ import annotations
@@ -32,11 +34,22 @@ from epub_zh.config import (
 from epub_zh.epub_io import JobState, state_dir_for
 from epub_zh.metadata import MODE_LABEL, safe_filename
 from epub_zh.pipeline import JobProgress, TranslationFailed, run_resume, run_translate
+from epub_zh.podcast import (
+    XYZ_REPO,
+    PodcastError,
+    Runner,
+    Transcript,
+    fetch_transcript,
+    find_xyz,
+    parse_episode_id,
+    run_xyz,
+)
 from epub_zh.translate import list_models
 
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 MODES = {"zh", "bilingual"}
 _JOB_ID = re.compile(r"^[0-9a-f]{12}$")
+_EID = re.compile(r"^[0-9a-f]{24}$")
 _SETTABLE = ("api_key", "base_url", "model", "batch_size", "concurrency")
 
 
@@ -282,6 +295,70 @@ class JobManager:
             job.error = None
 
 
+# ---- podcasts -----------------------------------------------------------------
+
+
+def _podcast_summary(t: Transcript) -> dict[str, Any]:
+    return {
+        "eid": t.eid,
+        "title": t.title,
+        "podcast_title": t.podcast_title,
+        "date": t.local_date,
+        "duration_seconds": t.duration_seconds,
+        "segment_count": len(t.segments),
+        "fetched": t.fetched,
+        "episode_url": t.episode_url,
+    }
+
+
+class PodcastStore:
+    """One ``<eid>.json`` per fetched transcript; fetching again overwrites it."""
+
+    def __init__(self, directory: Path, runner: Runner = run_xyz) -> None:
+        self.dir = directory
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.runner = runner
+        self.lock = threading.Lock()
+        self.inflight: set[str] = set()
+
+    def _path(self, eid: str) -> Path:
+        return self.dir / f"{eid}.json"
+
+    def get(self, eid: str) -> Transcript | None:
+        if not _EID.match(eid):
+            return None
+        try:
+            return Transcript.from_dict(json.loads(self._path(eid).read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError):
+            return None
+
+    def list(self) -> list[dict[str, Any]]:
+        items = [self.get(p.stem) for p in self.dir.glob("*.json")]
+        found = [t for t in items if t is not None]
+        return [_podcast_summary(t) for t in sorted(found, key=lambda t: t.fetched, reverse=True)]
+
+    def fetch(self, link: str) -> Transcript:
+        eid = parse_episode_id(link)
+        with self.lock:
+            if eid in self.inflight:
+                raise PodcastError("这一集正在抓取中")
+            self.inflight.add(eid)
+        try:
+            t = fetch_transcript(eid, runner=self.runner)
+            t.fetched = time.time()
+            self._path(eid).write_text(json.dumps(t.to_dict(), ensure_ascii=False), encoding="utf-8")
+            return t
+        finally:
+            with self.lock:
+                self.inflight.discard(eid)
+
+    def delete(self, eid: str) -> bool:
+        if not _EID.match(eid) or not self._path(eid).is_file():
+            return False
+        self._path(eid).unlink()
+        return True
+
+
 # ---- HTTP -------------------------------------------------------------------
 
 
@@ -300,11 +377,14 @@ def _settings_payload() -> dict[str, Any]:
         "concurrency": settings.concurrency,
         "rows": rows,
         "config_path": str(user_config_path()),
+        "xyz_path": find_xyz(),
+        "xyz_repo": XYZ_REPO,
     }
 
 
 class Handler(BaseHTTPRequestHandler):
     manager: JobManager  # set by make_server
+    podcasts: PodcastStore  # set by make_server
     server_version = "epub-zh"
 
     # quiet: the page polls /api/jobs every second or two
@@ -326,6 +406,11 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     # ---- responses --------------------------------------------------------
+
+    def _attachment(self, body: bytes, ctype: str, name: str) -> None:
+        ascii_name = name.encode("ascii", "replace").decode().replace("?", "_")
+        disposition = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
+        self._send(200, body, ctype, {"Content-Disposition": disposition})
 
     def _send(self, status: int, body: bytes, ctype: str, extra: dict[str, str] | None = None) -> None:
         self.send_response(status)
@@ -382,7 +467,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         if not self._host_ok():
             return self._error(HTTPStatus.FORBIDDEN, "forbidden host")
-        parts, _ = self._route()
+        parts, query = self._route()
         if parts == []:
             return self._send(200, _index_html(), "text/html; charset=utf-8")
         if parts == ["api", "jobs"]:
@@ -395,12 +480,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if job.status != "done" or not job.output.is_file():
                 return self._error(HTTPStatus.CONFLICT, "译文还没有生成")
-            name = job.download_name
-            ascii_name = name.encode("ascii", "replace").decode().replace("?", "_")
-            disposition = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
-            return self._send(
-                200, job.output.read_bytes(), "application/epub+zip", {"Content-Disposition": disposition}
-            )
+            return self._attachment(job.output.read_bytes(), "application/epub+zip", job.download_name)
+        if parts == ["api", "podcasts"]:
+            return self._json(self.podcasts.list())
+        if len(parts) in {3, 4} and parts[:2] == ["api", "podcasts"]:
+            return self._get_podcast(parts[2], parts[3:], query)
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
     def do_POST(self) -> None:  # noqa: N802
@@ -419,6 +503,8 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return self._json(job.to_dict(), HTTPStatus.CREATED)
+        if parts == ["api", "podcasts"]:
+            return self._fetch_podcast()
         if parts == ["api", "settings"]:
             return self._save_settings()
         if parts == ["api", "settings", "check"]:
@@ -447,6 +533,39 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self._error(HTTPStatus.CONFLICT, str(exc))
             return self._json({"ok": True})
+        if len(parts) == 3 and parts[:2] == ["api", "podcasts"]:
+            if not self.podcasts.delete(parts[2]):
+                return self._error(HTTPStatus.NOT_FOUND, "字幕不存在")
+            return self._json({"ok": True})
+        self._error(HTTPStatus.NOT_FOUND, "not found")
+
+    # ---- podcasts ---------------------------------------------------------
+
+    def _fetch_podcast(self) -> None:
+        data = self._read_json()
+        if data is None:
+            return
+        try:
+            t = self.podcasts.fetch(str(data.get("url", "")))
+        except PodcastError as exc:
+            return self._error(HTTPStatus.BAD_REQUEST, str(exc))
+        self._json(_podcast_summary(t), HTTPStatus.CREATED)
+
+    def _get_podcast(self, eid: str, rest: list[str], query: dict[str, list[str]]) -> None:
+        t = self.podcasts.get(eid)
+        if t is None:
+            return self._error(HTTPStatus.NOT_FOUND, "字幕不存在")
+        fmt = (query.get("format") or ["md"])[0]
+        if fmt not in {"md", "txt"}:
+            return self._error(HTTPStatus.BAD_REQUEST, "format 只能是 md 或 txt")
+        if rest == []:
+            return self._json({**_podcast_summary(t), "markdown": t.to_markdown()})
+        if rest == ["download"]:
+            if fmt == "md":
+                body, ctype, suffix = t.to_markdown(), "text/markdown; charset=utf-8", ".md"
+            else:
+                body, ctype, suffix = t.to_timestamped(), "text/plain; charset=utf-8", "（时间码）.txt"
+            return self._attachment(body.encode("utf-8"), ctype, f"{safe_filename(t.title)}{suffix}")
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
     def _job(self, job_id: str) -> Job | None:
@@ -486,8 +605,11 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": False, "message": f"连接成功，但模型 {settings.model} 不在可用列表中：{shown}"})
 
 
-def make_server(*, port: int, manager: JobManager, host: str = "127.0.0.1") -> ThreadingHTTPServer:
-    handler = type("BoundHandler", (Handler,), {"manager": manager})
+def make_server(
+    *, port: int, manager: JobManager, podcasts: PodcastStore | None = None, host: str = "127.0.0.1"
+) -> ThreadingHTTPServer:
+    podcasts = podcasts or PodcastStore(manager.jobs_dir.parent / "podcasts")
+    handler = type("BoundHandler", (Handler,), {"manager": manager, "podcasts": podcasts})
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     return server
@@ -496,10 +618,11 @@ def make_server(*, port: int, manager: JobManager, host: str = "127.0.0.1") -> T
 def bind_server(*, port: int, jobs_dir: Path, tries: int = 10) -> ThreadingHTTPServer:
     """Bind ``port``, or the next free one up to ``tries`` ports above it."""
     manager = JobManager(jobs_dir)
+    podcasts = PodcastStore(jobs_dir.parent / "podcasts")
     last: OSError | None = None
     for candidate in range(port, port + tries):
         try:
-            return make_server(port=candidate, manager=manager)
+            return make_server(port=candidate, manager=manager, podcasts=podcasts)
         except OSError as exc:
             last = exc
     raise OSError(f"ports {port}-{port + tries - 1} are all in use") from last

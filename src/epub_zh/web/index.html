@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EPUB 中译</title>
+<title>EPUB 中译 · 播客字幕</title>
 <style>
   :root {
     --bg: #f6f5f2; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
@@ -93,6 +93,37 @@
   dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
   #checkMsg { font-size: 13px; margin-top: 12px; min-height: 1.2em; }
   .path { font-size: 12px; color: var(--muted); margin-top: 10px; word-break: break-all; }
+  .sect { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 14px; }
+  .sect h4 { margin: 0 0 6px; font-size: 14px; }
+  .sect p { font-size: 13px; margin: 6px 0; }
+  .sect a { color: var(--accent); }
+  .sect pre {
+    font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; margin: 6px 0 0; overflow-x: auto;
+  }
+  #xyzStatus.ok { color: var(--ok); } #xyzStatus.missing { color: var(--err); }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
+  .tabs button {
+    border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+    padding: 8px 14px; color: var(--muted); margin-bottom: -1px;
+  }
+  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+  .fetch { display: flex; gap: 8px; margin-bottom: 8px; }
+  .fetch input {
+    flex: 1; font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--card); color: var(--text); min-width: 0;
+  }
+  .fetch input:focus { outline: none; border-color: var(--accent); }
+  .fetch-hint { font-size: 13px; color: var(--muted); margin-bottom: 30px; }
+  .fetch-hint code { font-size: 12px; }
+  .fetch-hint.err { color: var(--err); }
+  .preview {
+    margin: 10px 0 0; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font: 13px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px;
+  }
 
   #toast {
     position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--text); color: var(--bg);
@@ -104,10 +135,16 @@
 <body>
 <main>
   <header>
-    <h1>EPUB 中译<small>英文电子书 → 简体中文</small></h1>
+    <h1>EPUB 中译<small>英文电子书 → 简体中文 · 小宇宙播客字幕</small></h1>
     <button id="openSettings">设置</button>
   </header>
 
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="epub" aria-selected="true">EPUB 翻译</button>
+    <button role="tab" data-tab="podcast" aria-selected="false">播客字幕</button>
+  </nav>
+
+  <section id="tab-epub">
   <div id="keyBanner" class="banner" hidden>
     <span>还没有配置 API Key，翻译前需要先设置。</span>
     <button class="primary" id="bannerSettings">去设置</button>
@@ -121,6 +158,22 @@
 
   <h2>任务</h2>
   <div id="jobs"><div class="empty">还没有任务</div></div>
+  </section>
+
+  <section id="tab-podcast" hidden>
+  <form class="fetch" id="podForm">
+    <input id="podUrl" type="text" placeholder="粘贴小宇宙单集链接，如 https://www.xiaoyuzhoufm.com/episode/…" autocomplete="off">
+    <button class="primary" id="podBtn">抓取字幕</button>
+  </form>
+  <div id="xyzBanner" class="banner" hidden>
+    <span>本机还没有小宇宙命令行 xyz，抓取字幕前需要先安装并登录。</span>
+    <button class="primary" id="xyzSettings">查看配置方法</button>
+  </div>
+  <div class="fetch-hint" id="podMsg">用本机的 <code>xyz</code> 命令行抓取小宇宙官方文稿，不消耗翻译 API 额度。</div>
+
+  <h2>字幕</h2>
+  <div id="pods"><div class="empty">还没有抓取过字幕</div></div>
+  </section>
 </main>
 
 <dialog id="modePick">
@@ -149,6 +202,16 @@
     <input id="sBatch" type="number" min="1" max="40">
     <div id="checkMsg"></div>
     <div class="path">保存到 <span id="cfgPath"></span>（命令行和网页共用）</div>
+    <div class="sect">
+      <h4>小宇宙播客字幕</h4>
+      <p id="xyzStatus"></p>
+      <p>“播客字幕”用本机的小宇宙命令行 <code>xyz</code> 抓取。没有的话，按
+        <a id="xyzRepo" target="_blank" rel="noopener"></a> 的说明安装并登录：</p>
+      <pre>uv tool install git+https://github.com/lima1217/xiaoyuzhou
+xyz send-code &lt;手机号&gt;
+xyz login &lt;手机号&gt; &lt;验证码&gt;</pre>
+      <p class="path">装好后重新打开设置即可看到状态，无需重启服务。</p>
+    </div>
     <div class="row">
       <button type="button" id="checkBtn">测试连接</button>
       <button value="cancel" formnovalidate>关闭</button>
@@ -219,6 +282,7 @@ function pickMode(files) {
 async function upload(files) {
   const epubs = files.filter((f) => f.name.toLowerCase().endsWith(".epub"));
   if (!epubs.length) return files.length && toast("只支持 .epub 文件");
+  showTab("epub");
   if ($("#modePick").open) return toast("请先为上一批文件选择翻译格式");
   const mode = await pickMode(epubs);
   if (!mode) return;
@@ -335,6 +399,7 @@ function poll() {
 async function loadSettings() {
   settings = await api("/api/settings");
   $("#keyBanner").hidden = settings.has_key;
+  $("#xyzBanner").hidden = !!settings.xyz_path;
 }
 
 function openSettings() {
@@ -347,7 +412,18 @@ function openSettings() {
   $("#sConc").value = settings.concurrency || 8;
   $("#cfgPath").textContent = settings.config_path;
   $("#checkMsg").textContent = "";
+  const xs = $("#xyzStatus");
+  xs.className = settings.xyz_path ? "ok" : "missing";
+  xs.textContent = settings.xyz_path ? `已找到：${settings.xyz_path}` : "未找到 xyz";
+  $("#xyzRepo").href = settings.xyz_repo;
+  $("#xyzRepo").textContent = settings.xyz_repo.replace("https://", "");
   $("#settings").showModal();
+}
+
+// reopen reads fresh status, e.g. right after installing xyz
+async function openSettingsFresh() {
+  try { await loadSettings(); } catch { /* keep last */ }
+  openSettings();
 }
 
 async function saveSettings() {
@@ -367,8 +443,9 @@ async function saveSettings() {
   }
 }
 
-$("#openSettings").addEventListener("click", openSettings);
-$("#bannerSettings").addEventListener("click", openSettings);
+$("#openSettings").addEventListener("click", openSettingsFresh);
+$("#bannerSettings").addEventListener("click", openSettingsFresh);
+$("#xyzSettings").addEventListener("click", openSettingsFresh);
 $("#saveBtn").addEventListener("click", async () => {
   if (await saveSettings()) { $("#settings").close(); toast("设置已保存"); }
 });
@@ -382,7 +459,100 @@ $("#checkBtn").addEventListener("click", async () => {
   } catch (err) { msg.style.color = "var(--err)"; msg.textContent = err.message; }
 });
 
+// ---------- tabs ----------
+function showTab(name) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
+  $("#tab-epub").hidden = name !== "epub";
+  $("#tab-podcast").hidden = name !== "podcast";
+  localStorage.setItem("epub-zh-tab", name);
+  if (name === "podcast") { refreshPods(); loadSettings().catch(() => {}); }
+}
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+
+// ---------- podcasts ----------
+let pods = [];
+const open = new Set(); // eids whose preview is expanded
+const previews = {};
+
+function dur(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function renderPods() {
+  const box = $("#pods");
+  if (!pods.length) { box.replaceChildren(el("div", { class: "empty" }, "还没有抓取过字幕")); return; }
+  box.replaceChildren(...pods.map((p) => el("div", { class: "job done" },
+    el("div", { class: "top" },
+      el("div", { class: "name", title: p.title }, p.title),
+      el("div", { class: "status done" }, `${p.segment_count} 段`)),
+    el("div", { class: "detail" }, [p.podcast_title, p.date, dur(p.duration_seconds)].filter(Boolean).join(" · ")),
+    open.has(p.eid) ? el("pre", { class: "preview" }, previews[p.eid] || "加载中…") : "",
+    el("div", { class: "actions" },
+      el("button", { onclick: () => togglePreview(p) }, open.has(p.eid) ? "收起" : "预览"),
+      el("button", { onclick: () => copyPod(p) }, "复制"),
+      el("button", { class: "primary", onclick: () => download(`/api/podcasts/${p.eid}/download?format=md`) }, "下载 Markdown"),
+      el("button", { onclick: () => download(`/api/podcasts/${p.eid}/download?format=txt`) }, "下载时间码 TXT"),
+      el("button", { class: "danger", onclick: () => removePod(p) }, "删除")))));
+}
+
+async function refreshPods() {
+  try { pods = await api("/api/podcasts"); renderPods(); } catch { /* server stopped */ }
+}
+
+async function markdownOf(p) {
+  if (!previews[p.eid]) previews[p.eid] = (await api(`/api/podcasts/${p.eid}`)).markdown;
+  return previews[p.eid];
+}
+
+async function togglePreview(p) {
+  if (open.has(p.eid)) { open.delete(p.eid); return renderPods(); }
+  open.add(p.eid); renderPods();
+  try { await markdownOf(p); } catch (err) { toast(err.message); open.delete(p.eid); }
+  renderPods();
+}
+
+async function copyPod(p) {
+  try { await navigator.clipboard.writeText(await markdownOf(p)); toast("已复制 Markdown"); }
+  catch (err) { toast(`复制失败：${err.message}`); }
+}
+
+function download(url) {
+  const a = el("a", { href: url, download: "" });
+  document.body.append(a); a.click(); a.remove();
+}
+
+async function removePod(p) {
+  if (!confirm(`删除「${p.title}」的字幕？已下载的文件不受影响。`)) return;
+  try { await api(`/api/podcasts/${p.eid}`, { method: "DELETE" }); } catch (err) { toast(err.message); }
+  open.delete(p.eid); delete previews[p.eid];
+  refreshPods();
+}
+
+$("#podForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const url = $("#podUrl").value.trim();
+  if (!url) return $("#podUrl").focus();
+  const btn = $("#podBtn"), msg = $("#podMsg");
+  msg.dataset.idle ||= msg.innerHTML;
+  btn.disabled = true; btn.textContent = "抓取中…";
+  msg.classList.remove("err"); msg.innerHTML = msg.dataset.idle;
+  try {
+    const p = await api("/api/podcasts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+    $("#podUrl").value = "";
+    delete previews[p.eid];
+    toast(`已抓取：${p.title}（${p.segment_count} 段）`);
+    await refreshPods();
+  } catch (err) {
+    msg.classList.add("err"); msg.textContent = err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "抓取字幕";
+  }
+});
+
 loadSettings().catch(() => {});
+showTab(localStorage.getItem("epub-zh-tab") === "podcast" ? "podcast" : "epub");
 poll();
 </script>
 </body>

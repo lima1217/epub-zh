@@ -96,4 +96,4 @@ Confirm output path, mode, the translated title (`output_title` in `state.json`)
 
 Launch `epub-zh serve --no-open` in a *host terminal* (§ Where to run); it prints `epub-zh web UI: http://127.0.0.1:<port>/`.
 
-**Done when:** that URL answers (`curl -s http://127.0.0.1:<port>/api/jobs` returns JSON) and the user has the URL. The user drives the page; jobs and results persist in `~/.local/share/epub-zh/jobs/`. To stop the server, send it Ctrl+C after checking `/api/jobs` shows no `running` job.
+**Done when:** that URL answers (`curl -s http://127.0.0.1:<port>/api/jobs` returns JSON) and the user has the URL. The user drives the page; jobs and results persist in `~/.local/share/epub-zh/jobs/`. The page's 播客字幕 tab needs the `xyz` CLI logged in (`xyz login`); a 未登录 error there is fixed in a terminal, not in epub-zh config. Transcripts persist in `~/.local/share/epub-zh/podcasts/`. To stop the server, send it Ctrl+C after checking `/api/jobs` shows no `running` job.
