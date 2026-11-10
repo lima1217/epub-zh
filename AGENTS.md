@@ -4,7 +4,7 @@ Instructions for coding agents working in this repository or driving the `epub-z
 
 ## What this project is
 
-Translates an English EPUB to Simplified Chinese (`zh`) or English/Chinese (`bilingual`) via an OpenAI-compatible LLM API. Package `epub-zh`, entrypoint `epub_zh.cli:app`. Two front ends over one pipeline: the CLI (`translate`, `resume`, `status`, `config`) and a local web page (`serve`). The web page also has a 播客字幕 tab that fetches Xiaoyuzhou podcast transcripts through the separately installed `xyz` CLI. Human-facing overview: [`README.md`](README.md).
+Translates an English EPUB to Simplified Chinese (`zh`) or English/Chinese (`bilingual`) via an OpenAI-compatible LLM API. Package `epub-zh`, entrypoint `epub_zh.cli:app`. Two front ends over one pipeline: the CLI (`translate`, `resume`, `status`, `config`) and a local web page (`serve`). The web page also has a 播客字幕 tab (Xiaoyuzhou podcast transcripts through the separately installed `xyz` CLI) and a YouTube 字幕 tab (captions through `youtube-transcript-api`). Human-facing overview: [`README.md`](README.md).
 
 ## Driving translations
 
@@ -62,7 +62,7 @@ epub-zh translate <book.epub> --dry-run    # parse-only, no API
 epub-zh config check                       # live key check
 ```
 
-Real translation spends the user's API credits. To exercise the pipeline or web page, monkeypatch `epub_zh.pipeline.Translator` with a fake (as `tests/` does); use the real API only for a deliberate, small check. Podcast tests pass a fake `runner` to `PodcastStore` / `fetch_transcript` instead of calling `xyz`.
+Real translation spends the user's API credits. To exercise the pipeline or web page, monkeypatch `epub_zh.pipeline.Translator` with a fake (as `tests/` does); use the real API only for a deliberate, small check. Podcast tests pass a fake `runner` to `PodcastStore` / `fetch_transcript` instead of calling `xyz`; YouTube tests pass a fake `lister` / `describer` to `YouTubeStore` / `fetch_video` instead of calling YouTube.
 
 `tests/test_docs_defaults.py` requires `README.md`, `AGENTS.md`, and `cli-reference.md` to name the current default model and base URL: update all three when `config.py` defaults change.
 
@@ -80,6 +80,8 @@ Real translation spends the user's API credits. To exercise the pipeline or web 
 | `src/epub_zh/metadata.py` | Translated title, identifier suffix, language in OPF / NCX |
 | `src/epub_zh/epub_io.py` | Unpack/pack EPUB, `JobState`, zip-slip guards |
 | `src/epub_zh/server.py` | `epub-zh serve`: stdlib HTTP server, job queue, podcast transcript store, Host/Origin checks |
+| `src/epub_zh/transcripts.py` | Shared transcript store (one JSON per item), `TranscriptError`, timestamps |
 | `src/epub_zh/podcast.py` | Xiaoyuzhou transcripts: episode-link parsing, `xyz` subprocess calls, Markdown / timestamped rendering |
+| `src/epub_zh/youtube.py` | YouTube captions: link parsing, track choice, `youtube-transcript-api` + oEmbed title, rendering |
 | `src/epub_zh/web/index.html` | Drag-and-drop page served by `serve` |
 | `tests/` | Unit tests (fake translator, no network) |

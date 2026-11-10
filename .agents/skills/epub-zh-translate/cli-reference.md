@@ -77,6 +77,7 @@ model = "deepseek-flash"                   # optional
 batch_size = 40                          # optional, max blocks per API call, 1..40
 batch_chars = 3000                       # optional, target source chars per API call, 200..20000
 concurrency = 8                          # optional, API calls in flight, 1..32 (lower on 429s)
+youtube_proxy = "http://127.0.0.1:7890"  # optional, web page YouTube captions only (env EPUB_ZH_YOUTUBE_PROXY)
 ```
 
 `concurrency` is the speed knob. Measured on DeepSeek official: 8 → 60 s, 32 → 23 s, 64 → 29 s for the same 102 calls (past ~32, each call slows from ~5 s to ~10 s). Recommend `epub-zh config set concurrency 32` for DeepSeek; other gateways may rate-limit (429) sooner.

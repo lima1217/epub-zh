@@ -82,7 +82,7 @@ def test_no_subtitle_and_login_errors() -> None:
 def app(tmp_path: Path):
     manager = server.JobManager(tmp_path / "jobs")
     store = server.PodcastStore(tmp_path / "podcasts", runner=fake_xyz())
-    httpd = server.make_server(port=0, manager=manager, podcasts=store)
+    httpd = server.make_server(port=0, manager=manager, stores={"podcasts": store})
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{httpd.server_address[1]}", store
     httpd.shutdown()
@@ -107,7 +107,7 @@ def test_http_fetch_list_download_delete(app) -> None:
 
     status, _, body = _req(base, "/api/podcasts")
     [item] = json.loads(body)
-    assert item["eid"] == EID and item["date"] == "2026-10-28"
+    assert item["key"] == EID and item["subtitle"] == "独树不成林" and item["date"] == "2026-10-28"
 
     status, _, body = _req(base, f"/api/podcasts/{EID}")
     assert json.loads(body)["markdown"].startswith("# 372-")

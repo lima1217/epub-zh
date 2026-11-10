@@ -51,6 +51,8 @@ SETTING_FIELDS: tuple[FieldSpec, ...] = (
         default=DEFAULT_CONCURRENCY,
         int_range=(1, 32),
     ),
+    # Proxy for the web page's YouTube captions only (the LLM API ignores it).
+    FieldSpec("youtube_proxy", env_key="EPUB_ZH_YOUTUBE_PROXY"),
 )
 
 
@@ -62,6 +64,7 @@ class FileConfig:
     batch_size: int | None = None
     batch_chars: int | None = None
     concurrency: int | None = None
+    youtube_proxy: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,7 @@ class ResolvedSettings:
     sources: dict[str, str]  # field -> where it came from
     batch_chars: int = DEFAULT_BATCH_CHARS
     concurrency: int = DEFAULT_CONCURRENCY
+    youtube_proxy: str | None = None
 
 
 def user_config_path() -> Path:
@@ -216,6 +220,7 @@ def resolve_settings(
     assert isinstance(concurrency, int)
     api_key = resolved["api_key"]
     base_url = resolved["base_url"]
+    youtube_proxy = resolved["youtube_proxy"]
     return ResolvedSettings(
         api_key=api_key if isinstance(api_key, str) else None,
         base_url=base_url if isinstance(base_url, str) else None,
@@ -224,6 +229,7 @@ def resolve_settings(
         sources=sources,
         batch_chars=batch_chars,
         concurrency=concurrency,
+        youtube_proxy=youtube_proxy if isinstance(youtube_proxy, str) else None,
     )
 
 
@@ -242,6 +248,7 @@ api_key = "sk-..."
 # batch_size = 40      # max paragraphs per API call
 # batch_chars = 3000   # target English characters per API call
 # concurrency = 8      # API calls in flight; lower it if the gateway rate-limits (429)
+# youtube_proxy = "http://127.0.0.1:7890"  # web page YouTube captions only
 """
 
 
@@ -313,6 +320,8 @@ def format_settings_rows(settings: ResolvedSettings) -> list[tuple[str, str, str
                 display = "(set)"
         elif spec.name == "base_url":
             display = settings.base_url or f"{DEFAULT_BASE_URL} (default)"
+        elif spec.name == "youtube_proxy":
+            display = settings.youtube_proxy or "(unset)"
         else:
             display = str(getattr(settings, spec.name))
         rows.append((spec.name, display, src))

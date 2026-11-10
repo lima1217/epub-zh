@@ -18,6 +18,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from epub_zh.metadata import safe_filename
+from epub_zh.transcripts import TranscriptError, fmt_ts
+
 _EID = re.compile(r"^[0-9a-f]{24}$")
 _EID_IN_URL = re.compile(r"xiaoyuzhoufm\.com/episode/([0-9a-f]{24})")
 _SENTENCE_END = tuple("。？！?!.…；;”’」』）)]")
@@ -28,7 +31,7 @@ LOGIN_HINT = "在终端运行 `xyz send-code <手机号>`，收到短信后运�
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
 
-class PodcastError(Exception):
+class PodcastError(TranscriptError):
     pass
 
 
@@ -49,6 +52,26 @@ class Transcript:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @property
+    def key(self) -> str:
+        return self.eid
+
+    @property
+    def download_stem(self) -> str:
+        return safe_filename(self.title)
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "key": self.eid,
+            "title": self.title,
+            "subtitle": self.podcast_title,
+            "date": self.local_date,
+            "duration_seconds": self.duration_seconds,
+            "segment_count": len(self.segments),
+            "fetched": self.fetched,
+            "url": self.episode_url,
+        }
 
     @property
     def episode_url(self) -> str:
@@ -95,12 +118,6 @@ class Transcript:
 
     def to_timestamped(self) -> str:
         return "".join(f"[{fmt_ts(ms)}] {text}\n" for ms, text in self.paragraphs())
-
-
-def fmt_ts(ms: int) -> str:
-    s = max(0, int(ms)) // 1000
-    h, m, sec = s // 3600, (s % 3600) // 60, s % 60
-    return f"{h:02d}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
 
 
 def parse_episode_id(text: str) -> str:

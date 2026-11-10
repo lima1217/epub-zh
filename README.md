@@ -13,6 +13,7 @@ Translate English EPUB books into Simplified Chinese — Chinese only or English
 - **Any OpenAI-compatible API**: DeepSeek official is the default; point `base_url` / `model` at any other gateway.
 - **Optional**: leave the bibliography and index in English (`--skip-refs`), which saves requests.
 - **Podcast transcripts**: the same page has a **播客字幕** tab that saves a Xiaoyuzhou (小宇宙) episode's official transcript as Markdown — see [Podcast transcripts](#podcast-transcripts).
+- **YouTube captions**: a **YouTube 字幕** tab does the same for YouTube videos — see [YouTube captions](#youtube-captions).
 
 ## Requirements
 
@@ -70,6 +71,19 @@ xyz login <phone> <code>
 - Transcripts live in `~/.local/share/epub-zh/podcasts/` (next to `jobs/`).
 - The server finds `xyz` on `PATH`, then in `~/.local/bin`; set `EPUB_ZH_XYZ=/path/to/xyz` to override.
 - Episodes without an official 文稿 report “还没有官方字幕”.
+
+### YouTube captions
+
+The **YouTube 字幕** tab saves a video's captions with [`youtube-transcript-api`](https://github.com/jdepoix/youtube-transcript-api) (installed with epub-zh). It does not use the LLM API.
+
+1. Paste a video link (`youtube.com/watch?v=…`, `youtu.be/…`, `/shorts/…`) and pick a language:
+   - **原始字幕**: the first manually made track, else the auto-generated one.
+   - **英文** / **中文**: that language (manual before auto-generated); if the video has none, YouTube's own machine translation. YouTube often refuses translated captions — then pick 原始字幕.
+2. Preview, copy, or download Markdown / timestamped TXT, as for podcasts.
+
+- Captions live in `~/.local/share/epub-zh/youtube/`, one file per video and language.
+- If YouTube can't be reached or reports the IP as blocked, set a proxy in **设置** (`youtube_proxy`, e.g. `http://127.0.0.1:7890`). It applies to the next fetch, no restart.
+- Upgrading an existing install: the new dependency needs one `uv tool install --reinstall ./epub-zh` (add `-e` for an editable install); 设置 shows whether it is installed.
 
 ## Command line
 

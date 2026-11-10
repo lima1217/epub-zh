@@ -3,8 +3,9 @@ or paste a Xiaoyuzhou episode link and save its transcript.
 
 Stdlib only (``http.server``). Binds to loopback; jobs live on disk under
 ``jobs_dir`` so a server restart keeps finished files and can resume
-unfinished ones. One worker thread runs jobs in upload order. Podcast
-transcripts are fetched synchronously and kept in a sibling ``podcasts`` dir.
+unfinished ones. One worker thread runs jobs in upload order. Podcast and
+YouTube transcripts are fetched synchronously and kept in sibling
+``podcasts`` / ``youtube`` dirs.
 """
 
 from __future__ import annotations
@@ -34,23 +35,19 @@ from epub_zh.config import (
 from epub_zh.epub_io import JobState, state_dir_for
 from epub_zh.metadata import MODE_LABEL, safe_filename
 from epub_zh.pipeline import JobProgress, TranslationFailed, run_resume, run_translate
-from epub_zh.podcast import (
-    XYZ_REPO,
-    PodcastError,
-    Runner,
-    Transcript,
-    fetch_transcript,
-    find_xyz,
-    parse_episode_id,
-    run_xyz,
-)
+from epub_zh.podcast import XYZ_REPO, Runner, Transcript, fetch_transcript, find_xyz, parse_episode_id, run_xyz
+from epub_zh.transcripts import TranscriptError, TranscriptStore
+from epub_zh.youtube import KEY_RE as YOUTUBE_KEY_RE
+from epub_zh.youtube import Describer, Lister, VideoTranscript, fetch_video, library_version, parse_video_id
 from epub_zh.translate import list_models
 
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 MODES = {"zh", "bilingual"}
 _JOB_ID = re.compile(r"^[0-9a-f]{12}$")
 _EID = re.compile(r"^[0-9a-f]{24}$")
+_KINDS = ("podcasts", "youtube")  # URL segment and data dir name
 _SETTABLE = ("api_key", "base_url", "model", "batch_size", "concurrency")
+_CLEARABLE = ("youtube_proxy",)  # sent every save; blank clears it
 
 
 def default_jobs_dir() -> Path:
@@ -295,68 +292,38 @@ class JobManager:
             job.error = None
 
 
-# ---- podcasts -----------------------------------------------------------------
+# ---- transcripts ---------------------------------------------------------------
 
 
-def _podcast_summary(t: Transcript) -> dict[str, Any]:
-    return {
-        "eid": t.eid,
-        "title": t.title,
-        "podcast_title": t.podcast_title,
-        "date": t.local_date,
-        "duration_seconds": t.duration_seconds,
-        "segment_count": len(t.segments),
-        "fetched": t.fetched,
-        "episode_url": t.episode_url,
-    }
+def PodcastStore(directory: Path, runner: Runner = run_xyz) -> TranscriptStore:  # noqa: N802
+    """Xiaoyuzhou transcripts, keyed by episode id."""
+    return TranscriptStore(
+        directory,
+        key_re=_EID,
+        load=Transcript.from_dict,
+        fetch=lambda p: fetch_transcript(parse_episode_id(str(p.get("url", ""))), runner=runner),
+        claim=lambda p: parse_episode_id(str(p.get("url", ""))),
+    )
 
 
-class PodcastStore:
-    """One ``<eid>.json`` per fetched transcript; fetching again overwrites it."""
+def YouTubeStore(  # noqa: N802
+    directory: Path, *, lister: Lister | None = None, describer: Describer | None = None
+) -> TranscriptStore:
+    """YouTube captions, keyed by ``<video id>.<language code>``. The proxy is
+    read from settings on every fetch, so changing it needs no restart."""
+    hooks: dict[str, Any] = {k: v for k, v in (("lister", lister), ("describer", describer)) if v}
 
-    def __init__(self, directory: Path, runner: Runner = run_xyz) -> None:
-        self.dir = directory
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self.runner = runner
-        self.lock = threading.Lock()
-        self.inflight: set[str] = set()
+    def fetch(p: dict[str, Any]) -> VideoTranscript:
+        proxy = resolve_settings().youtube_proxy
+        return fetch_video(parse_video_id(str(p.get("url", ""))), str(p.get("lang") or "auto"), proxy=proxy, **hooks)
 
-    def _path(self, eid: str) -> Path:
-        return self.dir / f"{eid}.json"
-
-    def get(self, eid: str) -> Transcript | None:
-        if not _EID.match(eid):
-            return None
-        try:
-            return Transcript.from_dict(json.loads(self._path(eid).read_text(encoding="utf-8")))
-        except (OSError, ValueError, TypeError):
-            return None
-
-    def list(self) -> list[dict[str, Any]]:
-        items = [self.get(p.stem) for p in self.dir.glob("*.json")]
-        found = [t for t in items if t is not None]
-        return [_podcast_summary(t) for t in sorted(found, key=lambda t: t.fetched, reverse=True)]
-
-    def fetch(self, link: str) -> Transcript:
-        eid = parse_episode_id(link)
-        with self.lock:
-            if eid in self.inflight:
-                raise PodcastError("这一集正在抓取中")
-            self.inflight.add(eid)
-        try:
-            t = fetch_transcript(eid, runner=self.runner)
-            t.fetched = time.time()
-            self._path(eid).write_text(json.dumps(t.to_dict(), ensure_ascii=False), encoding="utf-8")
-            return t
-        finally:
-            with self.lock:
-                self.inflight.discard(eid)
-
-    def delete(self, eid: str) -> bool:
-        if not _EID.match(eid) or not self._path(eid).is_file():
-            return False
-        self._path(eid).unlink()
-        return True
+    return TranscriptStore(
+        directory,
+        key_re=YOUTUBE_KEY_RE,
+        load=VideoTranscript.from_dict,
+        fetch=fetch,
+        claim=lambda p: f"{parse_video_id(str(p.get('url', '')))}:{p.get('lang') or 'auto'}",
+    )
 
 
 # ---- HTTP -------------------------------------------------------------------
@@ -379,12 +346,14 @@ def _settings_payload() -> dict[str, Any]:
         "config_path": str(user_config_path()),
         "xyz_path": find_xyz(),
         "xyz_repo": XYZ_REPO,
+        "youtube_proxy": settings.youtube_proxy or "",
+        "youtube_lib": library_version(),
     }
 
 
 class Handler(BaseHTTPRequestHandler):
     manager: JobManager  # set by make_server
-    podcasts: PodcastStore  # set by make_server
+    stores: dict[str, TranscriptStore]  # set by make_server; keys are _KINDS
     server_version = "epub-zh"
 
     # quiet: the page polls /api/jobs every second or two
@@ -481,10 +450,10 @@ class Handler(BaseHTTPRequestHandler):
             if job.status != "done" or not job.output.is_file():
                 return self._error(HTTPStatus.CONFLICT, "译文还没有生成")
             return self._attachment(job.output.read_bytes(), "application/epub+zip", job.download_name)
-        if parts == ["api", "podcasts"]:
-            return self._json(self.podcasts.list())
-        if len(parts) in {3, 4} and parts[:2] == ["api", "podcasts"]:
-            return self._get_podcast(parts[2], parts[3:], query)
+        if len(parts) == 2 and parts[0] == "api" and parts[1] in _KINDS:
+            return self._json(self.stores[parts[1]].list())
+        if len(parts) in {3, 4} and parts[0] == "api" and parts[1] in _KINDS:
+            return self._get_transcript(self.stores[parts[1]], parts[2], parts[3:], query)
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
     def do_POST(self) -> None:  # noqa: N802
@@ -503,8 +472,8 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return self._json(job.to_dict(), HTTPStatus.CREATED)
-        if parts == ["api", "podcasts"]:
-            return self._fetch_podcast()
+        if len(parts) == 2 and parts[0] == "api" and parts[1] in _KINDS:
+            return self._fetch_transcript(self.stores[parts[1]])
         if parts == ["api", "settings"]:
             return self._save_settings()
         if parts == ["api", "settings", "check"]:
@@ -533,39 +502,39 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self._error(HTTPStatus.CONFLICT, str(exc))
             return self._json({"ok": True})
-        if len(parts) == 3 and parts[:2] == ["api", "podcasts"]:
-            if not self.podcasts.delete(parts[2]):
+        if len(parts) == 3 and parts[0] == "api" and parts[1] in _KINDS:
+            if not self.stores[parts[1]].delete(parts[2]):
                 return self._error(HTTPStatus.NOT_FOUND, "字幕不存在")
             return self._json({"ok": True})
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
-    # ---- podcasts ---------------------------------------------------------
+    # ---- transcripts ------------------------------------------------------
 
-    def _fetch_podcast(self) -> None:
+    def _fetch_transcript(self, store: TranscriptStore) -> None:
         data = self._read_json()
         if data is None:
             return
         try:
-            t = self.podcasts.fetch(str(data.get("url", "")))
-        except PodcastError as exc:
+            t = store.fetch(data)
+        except TranscriptError as exc:
             return self._error(HTTPStatus.BAD_REQUEST, str(exc))
-        self._json(_podcast_summary(t), HTTPStatus.CREATED)
+        self._json(t.summary(), HTTPStatus.CREATED)
 
-    def _get_podcast(self, eid: str, rest: list[str], query: dict[str, list[str]]) -> None:
-        t = self.podcasts.get(eid)
+    def _get_transcript(self, store: TranscriptStore, key: str, rest: list[str], query: dict[str, list[str]]) -> None:
+        t = store.get(key)
         if t is None:
             return self._error(HTTPStatus.NOT_FOUND, "字幕不存在")
         fmt = (query.get("format") or ["md"])[0]
         if fmt not in {"md", "txt"}:
             return self._error(HTTPStatus.BAD_REQUEST, "format 只能是 md 或 txt")
         if rest == []:
-            return self._json({**_podcast_summary(t), "markdown": t.to_markdown()})
+            return self._json({**t.summary(), "markdown": t.to_markdown()})
         if rest == ["download"]:
             if fmt == "md":
                 body, ctype, suffix = t.to_markdown(), "text/markdown; charset=utf-8", ".md"
             else:
                 body, ctype, suffix = t.to_timestamped(), "text/plain; charset=utf-8", "（时间码）.txt"
-            return self._attachment(body.encode("utf-8"), ctype, f"{safe_filename(t.title)}{suffix}")
+            return self._attachment(body.encode("utf-8"), ctype, f"{t.download_stem}{suffix}")
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
     def _job(self, job_id: str) -> Job | None:
@@ -587,6 +556,9 @@ class Handler(BaseHTTPRequestHandler):
                 if value is None or str(value).strip() == "":
                     continue  # blank = keep current (the key is never sent back to the page)
                 set_config_value(path, name, str(value).strip())
+            for name in _CLEARABLE:
+                if name in data and data[name] is not None:
+                    set_config_value(path, name, str(data[name]).strip())
         except ValueError as exc:
             return self._error(HTTPStatus.BAD_REQUEST, str(exc))
         self._json(_settings_payload())
@@ -605,11 +577,21 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": False, "message": f"连接成功，但模型 {settings.model} 不在可用列表中：{shown}"})
 
 
+def default_stores(data_dir: Path) -> dict[str, TranscriptStore]:
+    return {"podcasts": PodcastStore(data_dir / "podcasts"), "youtube": YouTubeStore(data_dir / "youtube")}
+
+
 def make_server(
-    *, port: int, manager: JobManager, podcasts: PodcastStore | None = None, host: str = "127.0.0.1"
+    *,
+    port: int,
+    manager: JobManager,
+    stores: dict[str, TranscriptStore] | None = None,
+    host: str = "127.0.0.1",
 ) -> ThreadingHTTPServer:
-    podcasts = podcasts or PodcastStore(manager.jobs_dir.parent / "podcasts")
-    handler = type("BoundHandler", (Handler,), {"manager": manager, "podcasts": podcasts})
+    """``stores`` defaults to podcasts / youtube dirs next to the jobs dir;
+    a partial dict overrides just those kinds."""
+    merged = {**default_stores(manager.jobs_dir.parent), **(stores or {})}
+    handler = type("BoundHandler", (Handler,), {"manager": manager, "stores": merged})
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     return server
@@ -618,11 +600,11 @@ def make_server(
 def bind_server(*, port: int, jobs_dir: Path, tries: int = 10) -> ThreadingHTTPServer:
     """Bind ``port``, or the next free one up to ``tries`` ports above it."""
     manager = JobManager(jobs_dir)
-    podcasts = PodcastStore(jobs_dir.parent / "podcasts")
+    stores = default_stores(jobs_dir.parent)
     last: OSError | None = None
     for candidate in range(port, port + tries):
         try:
-            return make_server(port=candidate, manager=manager, podcasts=podcasts)
+            return make_server(port=candidate, manager=manager, stores=stores)
         except OSError as exc:
             last = exc
     raise OSError(f"ports {port}-{port + tries - 1} are all in use") from last
