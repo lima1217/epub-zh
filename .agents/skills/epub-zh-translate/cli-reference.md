@@ -129,7 +129,7 @@ Reloads `source`, `output`, `mode`, `model`, `base_url`, `batch_size`, `batch_ch
 
 ### `epub-zh serve`
 
-Local drag-and-drop web page for humans (`--port 8765`, next free port if taken; `--jobs-dir`; `--open/--no-open`). Long-running like `translate`: launch it in a *host terminal*, not the agent shell. Binds 127.0.0.1 and rejects foreign `Host` / `Origin`. One worker runs jobs in upload order. Jobs persist under `~/.local/share/epub-zh/jobs/<id>/` (`meta.json`, `source.epub`, `output.epub`, `.epub-zh-state/output/state.json`), so `epub-zh status` works on a web job's `state.json` too.
+Local drag-and-drop web page for humans; `ezh serve` is the same command (`ezh` is an alias for `epub-zh`) (`--port 8765`, next free port if taken; `--jobs-dir`; `--open/--no-open`). Long-running like `translate`: launch it in a *host terminal*, not the agent shell. Binds 127.0.0.1 and rejects foreign `Host` / `Origin`. One worker runs jobs in upload order. Jobs persist under `~/.local/share/epub-zh/jobs/<id>/` (`meta.json`, `source.epub`, `output.epub`, `.epub-zh-state/output/state.json`), so `epub-zh status` works on a web job's `state.json` too.
 
 JSON API (same origin): `GET /api/jobs` (status, percent, `download_name`), `GET /api/jobs/<id>/download`. Stop: SIGINT (Ctrl+C) once no job is `running`; an interrupted job shows **继续** after restart.
 

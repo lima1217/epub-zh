@@ -25,7 +25,7 @@ Translate English EPUB books into Simplified Chinese — Chinese only or English
 
 ```bash
 git clone https://github.com/lima1217/epub-zh.git
-uv tool install ./epub-zh        # puts `epub-zh` on PATH (~/.local/bin)
+uv tool install ./epub-zh        # puts `epub-zh` and its short alias `ezh` on PATH (~/.local/bin)
 epub-zh version
 ```
 
@@ -37,12 +37,12 @@ After `git pull`, run `uv tool install --reinstall ./epub-zh` to pick up changes
 epub-zh config init      # creates ~/.config/epub-zh/config.toml
 # open that file and set api_key = "sk-..."
 epub-zh config check     # OK = key works and the model is served
-epub-zh serve            # opens http://127.0.0.1:8765/
+ezh serve                # opens http://127.0.0.1:8765/ (ezh = short alias of epub-zh)
 ```
 
 ## Web page
 
-`epub-zh serve` starts a local server and opens the page in your browser.
+`ezh serve` (same as `epub-zh serve`) starts a local server and opens the page in your browser.
 
 1. Drag one or more EPUB files onto the page (or click to choose).
 2. Choose **仅中文** or **中英对照**; optionally tick **跳过参考文献和索引**.

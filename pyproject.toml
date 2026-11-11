@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 epub-zh = "epub_zh.cli:app"
+ezh = "epub_zh.cli:app"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
